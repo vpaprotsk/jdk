@@ -413,8 +413,7 @@ class MacroAssembler: public Assembler {
 
   // Long multiplication for Java
   // (destroys contents of eax, ebx, ecx and edx)
-  void lmul(int x_rsp_offset, int y_rsp_offset); // rdx:rax = x * y
-
+  void lmul(int x_rsp_offset, int y_rsp_offset); // rdx:rax = x * 
   // Long shifts for Java
   // (semantics as described in JVM spec.)
   void lshl(Register hi, Register lo);                               // hi:lo << (rcx & 0x3f)

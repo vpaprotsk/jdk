@@ -473,12 +473,17 @@ class methodHandle;
   do_class(java_util_Base64_Decoder, "java/util/Base64$Decoder")                                                        \
   do_intrinsic(_base64_decodeBlock, java_util_Base64_Decoder, decodeBlock_name, decodeBlock_signature, F_R)             \
    do_name(decodeBlock_name, "decodeBlock")                                                                             \
-   do_signature(decodeBlock_signature, "([BII[BIZZ)I")                                                                   \
+   do_signature(decodeBlock_signature, "([BII[BIZZ)I")                                                                  \
+                                                                                                                        \
+  /* support for org.openjdk.vp.Poly1305*/                                                                              \
+  do_class(org_openjdk_vp_Poly1305, "sun/security/util/vp/Poly1305")                                                          \
+  do_intrinsic(_poly1305_processBlocks, org_openjdk_vp_Poly1305, processBlocks_name, polyBlock_signature, F_R)              \
+   do_name(processBlocks_name, "processBlocks")                                                                             \
+   do_signature(polyBlock_signature, "([BII[B[B)V")                                                                     \
                                                                                                                         \
   /* support for com.sun.crypto.provider.GHASH */                                                                       \
   do_class(com_sun_crypto_provider_ghash, "com/sun/crypto/provider/GHASH")                                              \
   do_intrinsic(_ghash_processBlocks, com_sun_crypto_provider_ghash, processBlocks_name, ghash_processBlocks_signature, F_S) \
-   do_name(processBlocks_name, "processBlocks")                                                                         \
    do_signature(ghash_processBlocks_signature, "([BII[J[J)V")                                                           \
                                                                                                                         \
   /* support for java.util.zip */                                                                                       \

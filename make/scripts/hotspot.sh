@@ -182,8 +182,32 @@ handle SIGUSR1 nostop noprint
 handle SIGUSR2 nostop noprint
 directory $GDBSRCDIR
 # Get us to a point where we can set breakpoints in libjvm.so
+
+set disassembly-flavor intel
+handle SIGSEGV nostop noprint
 set breakpoint pending on
 break JNI_CreateJavaVM
+run -XX:+UnlockDiagnosticVMOptions -XX:+UsePolyIntrinsics -XX:-TieredCompilation -Xcomp -cp target/classes org.openjdk.bench.javax.crypto.full.PolyBench
+b stubGenerator_x86_64.cpp:5654
+c
+p start
+
+set follow-fork-mode child
+run -XX:+UnlockDiagnosticVMOptions -XX:+UsePolyIntrinsics -XX:-TieredCompilation -Xcomp -XX:CompileCommand=break,sun.security.util.vp.Poly1305::engineUpdate -XX:CompileCommand=dontinline,sun.security.util.vp.Poly1305::engineUpdate -XX:CompileCommand=print,sun.security.util.vp.Poly1305::engineUpdate  -cp target/benchmarks.jar org.openjdk.bench.javax.crypto.full.PolyBench
+
+run -XX:+UnlockDiagnosticVMOptions -XX:-TieredCompilation -Xcomp -XX:CompileCommand=break,sun.security.util.vp.Poly1305::engineUpdate -XX:CompileCommand=dontinline,sun.security.util.vp.Poly1305::engineUpdate -XX:CompileCommand=print,sun.security.util.vp.Poly1305::engineUpdate  -cp target/benchmarks.jar org.openjdk.bench.javax.crypto.full.PolyBench
+
+
+run -XX:+UnlockDiagnosticVMOptions -XX:-TieredCompilation -Xcomp -XX:CompileCommand=break,org.openjdk.bench.javax.crypto.full.PolyBench::digest -XX:CompileCommand=dontinline,org.openjdk.bench.javax.crypto.full.PolyBench::digest  -cp target/benchmarks.jar org.openjdk.bench.javax.crypto.full.PolyBench
+
+
+run -XX:+UnlockDiagnosticVMOptions -XX:-TieredCompilation -XX:CompileCommand=break,org.openjdk.bench.javax.crypto.full.PolyBench::digest -XX:CompileCommand=dontinline,org.openjdk.bench.javax.crypto.full.PolyBench::digest  -jar target/benchmarks.jar  -f 1 -wi 3 -i 3 -w 10 -r 10 PolyBench
+
+sun.security.util.vp.Poly1305::engineUpdate
+delete 1
+b compile.cpp:522
+c
+
 run
 # Stop in JNI_CreateJavaVM
 delete 1

@@ -5385,6 +5385,520 @@ address generate_avx_ghash_processBlocks() {
     return start;
   }
 
+address generate_poly1305_processBlocksCP() {
+    StubCodeMark mark(this, "StubRoutines", "poly1305_processBlocksCP");
+    address start = __ pc();
+    // OFFSET 0: Message padding and clearing
+    __ emit_data64(0x0000000000000000, relocInfo::none);
+    __ emit_data64(0x0000000000000000, relocInfo::none);
+    __ emit_data64(0x0000000000000001, relocInfo::none);
+    __ emit_data64(0x0000000000000000, relocInfo::none);
+    __ emit_data64(0x0000000000000000, relocInfo::none);
+    __ emit_data64(0x0000000000000000, relocInfo::none);
+    __ emit_data64(0x0000000000000000, relocInfo::none);
+    __ emit_data64(0x0000000000000000, relocInfo::none);
+
+    // OFFSET 64: Permute indeces for 52bit limbs
+    __ emit_data64(0x1111111111111111, relocInfo::none);
+    __ emit_data64(0x1111111111111111, relocInfo::none);
+    __ emit_data64(0x1111111111111111, relocInfo::none);
+    __ emit_data64(0x1111111111111111, relocInfo::none);
+    __ emit_data64(0x1111111111111111, relocInfo::none);
+    __ emit_data64(0x11111111100f0e0d, relocInfo::none);
+    __ emit_data64(0x110c0b0a09080706, relocInfo::none);
+    __ emit_data64(0x1106050403020100, relocInfo::none);
+    __ emit_data64(0x1106050403020100, relocInfo::none);
+
+    // OFFSET 128: Down-shift values for 52bit limbs
+    __ emit_data64(0x00, relocInfo::none);
+    __ emit_data64(0x00, relocInfo::none);
+    __ emit_data64(0x00, relocInfo::none);
+    __ emit_data64(0x00, relocInfo::none);
+    __ emit_data64(0x00, relocInfo::none);
+    __ emit_data64(0x00, relocInfo::none);
+    __ emit_data64(0x04, relocInfo::none);
+    __ emit_data64(0x00, relocInfo::none);
+
+    // OFFSET 192: Permute to shift up for carry propagation
+    __ emit_data64(0x06, relocInfo::none);
+    __ emit_data64(0x05, relocInfo::none);
+    __ emit_data64(0x04, relocInfo::none);
+    __ emit_data64(0x03, relocInfo::none);
+    __ emit_data64(0x02, relocInfo::none);
+    __ emit_data64(0x01, relocInfo::none);
+    __ emit_data64(0x00, relocInfo::none);
+    __ emit_data64(0x07, relocInfo::none);
+
+    // OFFSET 256: Mask out carry bits
+    __ emit_data64(0x000fffffffffffff, relocInfo::none);
+    __ emit_data64(0x000fffffffffffff, relocInfo::none);
+    __ emit_data64(0x000fffffffffffff, relocInfo::none);
+    __ emit_data64(0x000fffffffffffff, relocInfo::none);
+    __ emit_data64(0x000fffffffffffff, relocInfo::none);
+    __ emit_data64(0x000fffffffffffff, relocInfo::none);
+    __ emit_data64(0x000fffffffffffff, relocInfo::none);
+    __ emit_data64(0x000fffffffffffff, relocInfo::none);
+
+    // OFFSET 320: Shift up for 64 radix conversion
+    __ emit_data64(0x000fffffffffffff, relocInfo::none);
+    __ emit_data64(0x000fffffffffffff, relocInfo::none);
+    __ emit_data64(0x000fffffffffffff, relocInfo::none);
+    __ emit_data64(0x000fffffffffffff, relocInfo::none);
+    __ emit_data64(0x000fffffffffffff, relocInfo::none);
+    __ emit_data64(0x000fffffffffffff, relocInfo::none);
+    __ emit_data64(0x000fffffffffffff, relocInfo::none);
+    __ emit_data64(0x000fffffffffffff, relocInfo::none);
+
+    // OFFSET 384: Shift down for 64 radix conversion
+    __ emit_data64(0x000fffffffffffff, relocInfo::none);
+    __ emit_data64(0x000fffffffffffff, relocInfo::none);
+    __ emit_data64(0x000fffffffffffff, relocInfo::none);
+    __ emit_data64(0x000fffffffffffff, relocInfo::none);
+    __ emit_data64(0x000fffffffffffff, relocInfo::none);
+    __ emit_data64(0x000fffffffffffff, relocInfo::none);
+    __ emit_data64(0x000fffffffffffff, relocInfo::none);
+    __ emit_data64(0x000fffffffffffff, relocInfo::none);
+
+    return start;
+  }
+
+  // =============================================================================
+  // =============================================================================
+  // Computes hash for message length being multiple of block size
+  // =============================================================================
+  void poly1305_multiply(
+      const Register A0, const Register A1, const Register A2,
+      const Register R0, const Register R1, const Register C1, bool only128)
+  {
+    // %macro POLY1305_MUL_REDUCE 11-12
+    // %define %%A0      %1    ; [in/out] GPR with accumulator bits 63:0
+    // %define %%A1      %2    ; [in/out] GPR with accumulator bits 127:64
+    // %define %%A2      %3    ; [in/out] GPR with accumulator bits 195:128
+    // %define %%R0      %4    ; [in] GPR with R constant bits 63:0
+    // %define %%R1      %5    ; [in] GPR with R constant bits 127:64
+    // %define %%C1      %6    ; [in] C1 = R1 + (R1 >> 2)
+    const Register T1 = r13;     // %7    ; [clobbered] GPR register
+    const Register T2 = r14;     // %8    ; [clobbered] GPR register
+    const Register T3 = r15;     // %9    ; [clobbered] GPR register
+    const Register GP_RAX = rax; // %10   ; [clobbered] RAX register
+    const Register GP_RDX = rdx; // %11   ; [clobbered] RDX register
+                                 //%define %%ONLY128 %12   ; [in] Used if input A2 is 0
+
+    // Combining 64-bit x 64-bit multiplication with reduction steps
+    //
+    // NOTES:
+    //   1) A2 here is only two bits so anything above is subject of reduction.
+    //      Constant C1 = 5*R1 = R1 + (R1 << 2) simplifies multiply with less operations
+    //   2) Magic 5x comes from mod 2^130-5 property and incorporating
+    //      reduction into multiply phase.
+    //      See "Cheating at modular arithmetic" and "Poly1305's prime: 2^130 - 5"
+    //      paragraphs at https://loup-vaillant.fr/tutorials/poly1305-design for more details.
+    //
+    // Flow of the code below is as follows:
+    //
+    //          A2        A1        A0
+    //        x           R1        R0
+    //   -----------------------------
+    //       A2×R0     A1×R0     A0×R0
+    //   +             A0×R1
+    //   +           5xA2xR1   5xA1xR1
+    //   -----------------------------
+    //     [0|L2L] [L1H|L1L] [L0H|L0L]
+    //
+    //   Registers:  T3:T2     T1:A0
+    //
+    // Completing the multiply and adding (with carry) 3x128-bit limbs into
+    // 192-bits again (3x64-bits):
+    // A0 = L0L
+    // A1 = L0H + L1L
+    // T3 = L1H + L2L
+
+    // T3:T2 = (A0 * R1)        >>> 0x892ace2201ff:0x0176dc207375632c
+    __ movq(GP_RAX, R1);
+    __ mulq(A0);
+    __ movq(T2, GP_RAX);
+    __ movq(T3, GP_RDX);
+
+    // T1:A0 = (A0 * R0)        >>> 0x411203ffb3fc69:0xfc34544b48ed75d1
+    __ movq(GP_RAX, R0);
+    __ mulq(A0);
+    __ movq(A0, GP_RAX); // A0 not used in other operations
+    __ movq(T1, GP_RDX);
+
+    // T3:T2 += (A1 * R0)       >>> 0x915432da1993:0x301e6c788990f005
+    __ movq(GP_RAX, R0);
+    __ mulq(A1);
+    __ addq(T2, GP_RAX);
+    __ adcq(T3, GP_RDX);
+
+    // T1:A0 += (A1 * R1x5)     >>> 0x41121981358310:0x1d68f23338c88d00
+    __ movq(GP_RAX, C1);
+    __ mulq(A1);
+    __ addq(A0, GP_RAX);
+    __ adcq(T1, GP_RDX);
+
+    // NOTE: A2 is clamped to 2-bits,
+    //       R1/R0 is clamped to 60-bits,
+    //       their product is less than 2^64.
+
+    if (only128) {
+      // If A2 == 0, just move and add T1-T2 to A1
+      __ movq(A1, T1);
+      __ addq(A1, T2);
+      __ adcq(T3, 0);
+    } else {
+      // T3:T2 += (A2 * R1x5)    >>> 0x915432da1993:0x3033c30c8eab4b9e
+      __ movq(A1, A2); // use A1 for A2
+      __ imulq(A1, C1);
+      __ addq(T2, A1);
+      __ adcq(T3, 0);
+
+      __ movq(A1, T1); // T1:A0 => A1:A0
+
+      // T3:A1 += (A2 * R0):T2   >>> 0x819ab6c3ef737b2:0x3074d5260fe0ceae
+      __ imulq(A2, R0);
+      __ addq(A1, T2);
+      __ adcq(T3, A2);
+    }
+
+    // At this point, 3 64-bit limbs are in T3:A1:A0
+    // T3 can span over more than 2 bits so final partial reduction step is needed.
+    //
+    // Partial reduction (just to fit into 130 bits)
+    //    A2 = T3 & 3
+    //    k = (T3 & ~3) + (T3 >> 2)
+    //         Y    x4  +  Y    x1
+    //    A2:A1:A0 += k
+    //
+    // Result will be in A2:A1:A0
+    __ movq(T1, T3);
+    __ movl(A2, T3); //(DWORD(A2), DWORD(T3));
+    __ andq (T1, ~3);
+    __ shrq(T3, 2);
+    __ addq(T1, T3);
+    __ andl(A2, 3); // (DWORD(A2), 3);  >>> A2:T1=0x2:0xa2016474eb5059c
+
+    // A2:A1:A0 += k (kept in T1)       >>> A2:A1:A0 =0x2:0x3074d5260fe0ceae:0x2789087a877d929c
+    __ addq(A0, T1);
+    __ adcq(A1, 0);
+    __ adcl(A2, 0); //DWORD(A2), 0);
+  }
+
+  address generate_poly1305_processBlocks()
+  {
+    __ align64(); //__ align(CodeEntryAlignment); ??
+    StubCodeMark mark(this, "StubRoutines", "poly1305_processBlocks");
+    address start = __ pc();
+    assert(((unsigned long long)start & 0x3f) == 0,
+           "Alignment problem (0x%08llx)", (unsigned long long)start);
+
+    const Register input        = rdi;
+    const Register offset       = rsi;
+    const Register lengthArg    = rdx; 
+    const Register accumulator  = rcx;
+    const Register R            = r8;
+    const Register length       = rbx; 
+
+    const Register A0 = offset; 
+    const Register A1 = r9;
+    const Register A2 = r10;
+    const Register R0 = r11; 
+    const Register R1 = r12;
+    const Register C1 = R;
+
+    Label L_process16Loop, L_process16LoopDone;
+
+    // Stack management
+    __ enter();
+    
+    // Saveall??
+    __ push(input); // Used to loop through the message
+    __ push(length); // Used to loop through the message
+    __ push(offset); // Spill
+    __ push(R); // Spill
+    
+    __ push(r13); // T1
+    __ push(r14); // T2
+    __ push(r15); // T3
+    __ push(rax); // mul
+    __ push(rdx); // mul
+
+    __ push(A1); 
+    __ push(A2);
+    __ push(R0);
+    __ push(R1);
+
+  #ifdef _WIN64
+    setup_arg_regs(4); // input => rdi, offset => rsi, length => rdx
+                       // accumulator => rcx, R => r8
+                       // r9 and r10 may be used to save non-volatile registers
+    // last argument (#4) is on stack on Win64
+    __ movptr(R, Address(rsp, 6 * wordSize));
+  #endif
+
+    __ lea(input, Address(input, offset)); // Free up offset
+    __ movq(length, lengthArg); // lengthArg gets clobered by mul
+
+    // Load constants
+    __ movq(R0, Address(R, 0));
+    __ movq(R1, Address(R, 8));
+
+    __ movq(C1, R1);
+    __ shrq(C1, 2);
+    __ addq(C1, R1); // C1 = R1 + (R1 >> 2)
+
+    __ movq(A0, Address(accumulator, 0));
+    __ movq(A1, Address(accumulator, 8));
+    __ movzbq(A2, Address(accumulator, 16));
+
+    __ BIND(L_process16Loop);
+    __ cmpl(length, 16);
+    __ jcc(Assembler::less, L_process16LoopDone);
+
+    __ addq(A0, Address(input,0));
+    __ adcq(A1, Address(input,8));
+    __ adcq(A2,1); //adcl?
+
+    // rdx rax r13 r14 r15
+    poly1305_multiply(
+      A0, A1, A2,
+      R0, R1, C1, false);
+
+    __ subl(length, 16);
+    __ lea(input, Address(input,16));
+    __ jmp(L_process16Loop);
+    __ BIND(L_process16LoopDone);
+
+    // Write output
+    __ movq(Address(accumulator, 0), A0);
+    __ movq(Address(accumulator, 8), A1);
+    __ movb(Address(accumulator, 16), A2);
+
+    // Restore registers
+    __ pop(R1);
+    __ pop(R0);
+    __ pop(A2);
+    __ pop(A1); 
+
+    __ pop(rdx); // mul
+    __ pop(rax); // mul
+    __ pop(r15); // T3
+    __ pop(r14); // T2
+    __ pop(r13); // T1
+
+    __ pop(R); // Spill
+    __ pop(offset); // Spill
+    __ pop(length); // Used to loop through the message
+    __ pop(input); // Used to loop through the message
+
+
+    restore_arg_regs(); //???
+    __ leave();
+    __ ret(0);
+    return start;
+  }
+
+#if 0
+  address generate_poly1305_processBlocks()
+  {
+    __ align64();
+    StubCodeMark mark(this, "StubRoutines", "poly1305_processBlocks");
+    address start = __ pc();
+    assert(((unsigned long long)start & 0x3f) == 0,
+           "Alignment problem (0x%08llx)", (unsigned long long)start);
+
+    const Register input        = c_rarg0;
+    const Register offset       = c_rarg1;
+    const Register length       = c_rarg2;
+    const Register accumulator  = c_rarg3;
+    const Register R            = c_rarg4;
+    const Register constPool    = r12;
+    const Register tempReg      = r13;
+    const Register Rdigit       = r14;
+    const Register Rcarry       = r15;
+
+    // Q: linkage, args in registers?
+    // Q: allowed to change args 'in-place'?
+    // Q: zmm, xmm.. callee-saved?
+
+    // Stack
+    // Constants from pool
+    // Load R
+    // Load ACC
+    // loop_label:
+    // if length < 16 jump pad_last:
+    // load_16, pad16
+    // pad_last: 
+
+    Label L_process16Loop, L_process16LoopDone;
+
+    const XMMRegister pad_xmm1 = xmm1;
+    const XMMRegister permute_xmm2 = xmm2;
+    const XMMRegister shift_xmm3 = xmm3;
+    const XMMRegister carryshift1_xmm4 = xmm4;
+    const XMMRegister carryshift2_xmm5 = xmm5;
+    const XMMRegister limbmask_xmm6 = xmm6;
+    const XMMRegister reduction5_xmm7 = xmm7;
+    const XMMRegister shift2_xmm3 = xmm3;
+    const XMMRegister shift3_xmm4 = xmm4;
+    const XMMRegister ACC_xmm10 = xmm10;
+    const XMMRegister R1_xmm11 = xmm11;
+    const XMMRegister R2_xmm12 = xmm12;
+    const XMMRegister R3_xmm13 = xmm13;
+    const XMMRegister MSG_xmm14 = xmm14;
+    const XMMRegister FMA_ACC_xmm15 = xmm15;
+    const XMMRegister FMAh_ACC_xmm16 = xmm16;
+    const KRegister ACC_load_mask = k1;
+    const KRegister R_load_mask = k1;
+    const KRegister MSG_load_mask = k2;
+    const KRegister MSG_pad_mask = k3;
+
+    // Stack management
+    __ enter();
+    __ push(constPool);
+    __ push(tempReg);
+    __ push(Rdigit);
+    __ push(Rcarry);
+
+    // Load constants
+    __ lea(constPool, ExternalAddress(StubRoutines::poly1305_processBlocksCP()));
+    __ evmovdquq(pad_xmm1, Address(constPool, 0), Assembler::AVX_512bit);
+    __ evmovdquq(permute_xmm2, Address(constPool, 64), Assembler::AVX_512bit);
+    __ evmovdquq(shift_xmm3, Address(constPool, 128), Assembler::AVX_512bit);
+    __ mov64(tempReg, (1<<17)-1), // mask to load 17 bytes
+    __ kmov(ACC_load_mask, tempReg);
+    __ mov64(tempReg, (1<<16)-1), // mask to load 16 bytes
+    __ kmov(MSG_load_mask, tempReg);
+    __ mov64(tempReg, 1<<16), // mask to load 17th byte _only_
+    __ kmov(MSG_pad_mask, tempReg);
+    __ mov64(tempReg, 52), // downshift value for 52-bit limb carry propagation
+    __ evpbroadcastq(carryshift1_xmm4, tempReg, Assembler::AVX_512bit);
+    __ evmovdquq(carryshift2_xmm5, Address(constPool, 192), Assembler::AVX_512bit);
+    __ evmovdquq(limbmask_xmm6, Address(constPool, 256), Assembler::AVX_512bit);
+    __ mov64(tempReg, 5), // multiplier for upper half for reduction on 1305 
+    __ evpbroadcastq(reduction5_xmm7, tempReg, Assembler::AVX_512bit); // mask cleverness?
+    //__ mov64(tempReg, 1), // Constant ONE
+    __ vpxor(FMAh_ACC_xmm16, FMAh_ACC_xmm16, FMAh_ACC_xmm16, Assembler::AVX_512bit);
+
+    // Accumulator load, LE and limb conversions 
+    __ evmovdqub(ACC_xmm10, ACC_load_mask, Address(accumulator, 0), false, Assembler::AVX_512bit);
+    __ vpermb(ACC_xmm10, permute_xmm2, ACC_xmm10, Assembler::AVX_512bit);
+    __ vpsrlvq(ACC_xmm10, ACC_xmm10, shift_xmm3, Assembler::AVX_512bit);
+    __ vpandq(ACC_xmm10, limbmask_xmm6, ACC_xmm10, Assembler::AVX_512bit);
+
+    // R[1,2,3] load and multiplier setup
+    __ movq(Rdigit, Address(R, 0));
+    __ mov64(tempReg, 0x7), // first three quads
+    __ kmov(R_load_mask, tempReg);
+    __ evpbroadcastb(R1_xmm11, R_load_mask, Rdigit, true, Assembler::AVX_512bit);
+    __ vpandq(R1_xmm11, limbmask_xmm6, R1_xmm11, Assembler::AVX_512bit);
+
+    __ movq(Rdigit, Address(R, 7));
+    __ shrl(Rdigit, 4);
+    __ mov64(tempReg, 0x7<<1), // first three quads
+    __ kmov(R_load_mask, tempReg);
+    __ evpbroadcastb(R2_xmm12, R_load_mask, Rdigit, true, Assembler::AVX_512bit);
+    __ vpandq(R2_xmm12, limbmask_xmm6, R2_xmm12, Assembler::AVX_512bit);
+
+    __ movq(Rdigit, Address(R, 15));
+    __ mov64(tempReg, 0x7<<2), // first three quads
+    __ kmov(R_load_mask, tempReg);
+    __ evpbroadcastb(R3_xmm13, R_load_mask, Rdigit, true, Assembler::AVX_512bit);
+    __ vpandq(R3_xmm13, limbmask_xmm6, R3_xmm13, Assembler::AVX_512bit);
+
+    // R * 5
+    __ evmovdqub(R_xmm12, MSG_load_mask, Address(R, 0), false, Assembler::AVX_512bit);\
+    __ mov64(tempReg, 5), // multiplier for upper half for reduction on 1305 
+    __ evpbroadcastq(reduction5_xmm7, tempReg, Assembler::AVX_512bit);
+    __ evpmadd52luq(R_xmm12, reduction5_xmm7, R_xmm12, Assembler::AVX_512bit);
+    // Carry propagation 0 -> 1
+    __ evpsrlvq(FMA_ACC_xmm15, k0, carryshift1_xmm4, ACC_xmm10, false, Assembler::AVX_512bit);
+    __ vpermq(FMA_ACC_xmm15, carryshift2_xmm5, FMA_ACC_xmm15, Assembler::AVX_512bit);
+    __ vpandq(FMA_ACC_xmm15, limbmask_xmm6, FMA_ACC_xmm15, Assembler::AVX_512bit);
+    __ evpaddq(ACC_xmm10, k0, ACC_xmm10, FMA_ACC_xmm15, false, Assembler::AVX_512bit);
+    // Carry propagation 1 -> 2
+    __ evpsrlvq(FMA_ACC_xmm15, k0, carryshift1_xmm4, ACC_xmm10, false, Assembler::AVX_512bit);
+    __ vpermq(FMA_ACC_xmm15, carryshift2_xmm5, FMA_ACC_xmm15, Assembler::AVX_512bit);
+    __ vpandq(FMA_ACC_xmm15, limbmask_xmm6, FMA_ACC_xmm15, Assembler::AVX_512bit);
+    __ evpaddq(ACC_xmm10, k0, ACC_xmm10, FMA_ACC_xmm15, false, Assembler::AVX_512bit);
+    // No overflow due to R-clamp
+
+    __ BIND(L_process16Loop);
+    __ cmpl(length, 16);
+    __ jcc(Assembler::less, L_process16LoopDone);
+    // Process one block here
+
+    // Message load, pad, LE and limb conversions 
+    __ evmovdqub(MSG_xmm14, MSG_load_mask, Address(input, offset), false, Assembler::AVX_512bit);
+    __ evpbroadcastb(MSG_xmm14, MSG_pad_mask, tempReg, true, Assembler::AVX_512bit);
+    __ vpermb(MSG_xmm14, permute_xmm2, MSG_xmm14, Assembler::AVX_512bit);
+    __ vpsrlvq(MSG_xmm14, MSG_xmm14, shift_xmm3, Assembler::AVX_512bit);
+    __ vpandq(MSG_xmm14, limbmask_xmm6, MSG_xmm14, Assembler::AVX_512bit);
+
+    // Add message to accumulator
+    __ evpaddq(ACC_xmm10, k0, ACC_xmm10, MSG_xmm14, false, Assembler::AVX_512bit);
+    // Carry propagation 0 -> 1
+    __ evpsrlvq(FMA_ACC_xmm15, k0, carryshift1_xmm4, ACC_xmm10, false, Assembler::AVX_512bit);
+    __ vpermq(FMA_ACC_xmm15, carryshift2_xmm5, FMA_ACC_xmm15, Assembler::AVX_512bit);
+    __ vpandq(FMA_ACC_xmm15, limbmask_xmm6, FMA_ACC_xmm15, Assembler::AVX_512bit);
+    __ evpaddq(ACC_xmm10, k0, ACC_xmm10, FMA_ACC_xmm15, false, Assembler::AVX_512bit);
+    // Carry propagation 1 -> 2
+    __ evpsrlvq(FMA_ACC_xmm15, k0, carryshift1_xmm4, ACC_xmm10, false, Assembler::AVX_512bit);
+    __ vpermq(FMA_ACC_xmm15, carryshift2_xmm5, FMA_ACC_xmm15, Assembler::AVX_512bit);
+    __ vpandq(FMA_ACC_xmm15, limbmask_xmm6, FMA_ACC_xmm15, Assembler::AVX_512bit);
+    __ evpaddq(ACC_xmm10, k0, ACC_xmm10, FMA_ACC_xmm15, false, Assembler::AVX_512bit);
+
+    __ evpmadd52luq(FMA_ACC_xmm15, ACC_xmm10, R1_xmm11, Assembler::AVX_512bit);
+    __ evpmadd52huq(FMAh_ACC_xmm16, ACC_xmm10, R1_xmm11, Assembler::AVX_512bit);
+
+    __ evpmadd52luq(FMA_ACC_xmm15, ACC_xmm10, R2_xmm12, Assembler::AVX_512bit);
+    __ evpmadd52huq(FMAh_ACC_xmm16, ACC_xmm10, R2_xmm12, Assembler::AVX_512bit);
+
+    __ evpmadd52luq(FMA_ACC_xmm15, ACC_xmm10, R3_xmm13, Assembler::AVX_512bit);
+    __ evpmadd52huq(FMAh_ACC_xmm16, ACC_xmm10, R3_xmm13, Assembler::AVX_512bit);
+
+    __ vpermq(FMAh_ACC_xmm16, carryshift2_xmm5, FMAh_ACC_xmm16, Assembler::AVX_512bit);
+    __ evpaddq(ACC_xmm10, k0, FMAh_ACC_xmm16, FMAh_ACC_xmm16, false, Assembler::AVX_512bit);
+    // Carry propagation 0 -> 1
+    __ evpsrlvq(FMA_ACC_xmm15, k0, carryshift1_xmm4, ACC_xmm10, false, Assembler::AVX_512bit);
+    __ vpermq(FMA_ACC_xmm15, carryshift2_xmm5, FMA_ACC_xmm15, Assembler::AVX_512bit);
+    __ vpandq(FMA_ACC_xmm15, limbmask_xmm6, FMA_ACC_xmm15, Assembler::AVX_512bit);
+    __ evpaddq(ACC_xmm10, k0, ACC_xmm10, FMA_ACC_xmm15, false, Assembler::AVX_512bit);
+    // Carry propagation 1 -> 2
+    __ evpsrlvq(FMA_ACC_xmm15, k0, carryshift1_xmm4, ACC_xmm10, false, Assembler::AVX_512bit);
+    __ vpermq(FMA_ACC_xmm15, carryshift2_xmm5, FMA_ACC_xmm15, Assembler::AVX_512bit);
+    __ vpandq(FMA_ACC_xmm15, limbmask_xmm6, FMA_ACC_xmm15, Assembler::AVX_512bit);
+    __ evpaddq(ACC_xmm10, k0, ACC_xmm10, FMA_ACC_xmm15, false, Assembler::AVX_512bit);
+    
+
+////// reduction fixme, dont we need a substract? but must be constant time
+
+    __ subl(length, 16);
+    __ addl(offset, 16);
+    __ jmp(L_process16Loop);
+
+    __ BIND(L_process16LoopDone);
+
+    // fixme: mask?
+    __ evmovdquq(shift2_xmm3, Address(constPool, 320), Assembler::AVX_512bit);
+    __ evmovdquq(shift3_xmm4, Address(constPool, 384), Assembler::AVX_512bit);
+    __ vpsrlvq(FMA_ACC_xmm15, ACC_xmm10, shift2_xmm3, Assembler::AVX_512bit);
+    __ vpsrlvq(ACC_xmm10, ACC_xmm10, shift_xmm3, Assembler::AVX_512bit);
+    __ vpandq(ACC_xmm10, shift3_xmm4, ACC_xmm10, Assembler::AVX_512bit);
+
+     __ evmovdqub(Address(accumulator, 0), ACC_load_mask, ACC_xmm10, false, Assembler::AVX_512bit);
+
+    __ pop(constPool);
+    __ pop(tempReg);
+    __ pop(tempReg2);
+    //__ int3();
+    __ leave();
+    __ ret(0); // D-Q: void?
+    return start;
+    // D-Q: gdb not breaking in asm (even with -Xcomp; somehow swap from Xint to Xcomp? but should not be a problem with Xcomp)
+  }
+  #endif
+
   address base64_shuffle_addr()
   {
     __ align64();
@@ -7801,6 +8315,10 @@ address generate_avx_ghash_processBlocks() {
       }
     }
 
+    //printf("VP was here!!>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>\n");
+
+    StubRoutines::_poly1305_processBlocksCP = generate_poly1305_processBlocksCP();
+    StubRoutines::_poly1305_processBlocks = generate_poly1305_processBlocks();
 
     if (UseBASE64Intrinsics) {
       if(VM_Version::supports_avx2() &&

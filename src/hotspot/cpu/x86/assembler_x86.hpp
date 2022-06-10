@@ -1852,6 +1852,10 @@ private:
   void pmaddwd(XMMRegister dst, XMMRegister src);
   void vpmaddwd(XMMRegister dst, XMMRegister nds, XMMRegister src, int vector_len);
   void vpmaddubsw(XMMRegister dst, XMMRegister src1, XMMRegister src2, int vector_len);
+  void evpmadd52luq(XMMRegister dst, XMMRegister src1, XMMRegister src2, int vector_len);
+  void evpmadd52luq(XMMRegister dst, KRegister mask, XMMRegister src1, XMMRegister src2, bool merge, int vector_len);
+  void evpmadd52huq(XMMRegister dst, XMMRegister src1, XMMRegister src2, int vector_len);
+  void evpmadd52huq(XMMRegister dst, KRegister mask, XMMRegister src1, XMMRegister src2, bool merge, int vector_len);
 
   // Multiply add accumulate
   void evpdpwssd(XMMRegister dst, XMMRegister nds, XMMRegister src, int vector_len);
@@ -2629,7 +2633,9 @@ private:
 
   // gpr sourced byte/word/dword/qword replicate
   void evpbroadcastb(XMMRegister dst, Register src, int vector_len);
+  void evpbroadcastb(XMMRegister dst, KRegister mask, Register src, bool merge, int vector_len);
   void evpbroadcastw(XMMRegister dst, Register src, int vector_len);
+  // VP: TODO add KRegister version for other element sizes
   void evpbroadcastd(XMMRegister dst, Register src, int vector_len);
   void evpbroadcastq(XMMRegister dst, Register src, int vector_len);
 

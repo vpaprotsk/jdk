@@ -519,7 +519,7 @@ void Compile::print_compile_messages() {
   }
   if (env()->break_at_compile()) {
     // Open the debugger when compiling this method.
-    tty->print("### Breaking when compiling: ");
+    tty->print("### Breaking when compiling VP: ");
     method()->print_short_name();
     tty->cr();
     BREAKPOINT;

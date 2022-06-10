@@ -129,7 +129,9 @@ module java.base {
     exports javax.security.auth.spi;
     exports javax.security.auth.x500;
     exports javax.security.cert;
-
+    exports sun.security.util.vp;
+    exports sun.security.util.vp.math;
+    exports sun.security.util.vp.math.intpoly;
 
     // additional qualified exports may be inserted at build time
     // see make/gensrc/GenModuleInfo.gmk
@@ -237,13 +239,13 @@ module java.base {
     exports jdk.internal.vm to
         jdk.internal.jvmstat,
         jdk.management.agent;
-    exports jdk.internal.vm.annotation to
-        java.instrument,
-        jdk.internal.vm.ci,
-        jdk.incubator.vector,
-        jdk.incubator.foreign,
-        jdk.jfr,
-        jdk.unsupported;
+    exports jdk.internal.vm.annotation;// to
+        // java.instrument,
+        // jdk.internal.vm.ci,
+        // jdk.incubator.vector,
+        // jdk.incubator.foreign,
+        // jdk.jfr,
+        // jdk.unsupported,;
     exports jdk.internal.vm.vector to
         jdk.incubator.vector;
     exports jdk.internal.util to

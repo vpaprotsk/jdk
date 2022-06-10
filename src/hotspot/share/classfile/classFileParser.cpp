@@ -1967,6 +1967,7 @@ AnnotationCollector::annotation_index(const ClassLoaderData* loader_data,
                                       const Symbol* name,
                                       const bool can_access_vm_annotations) {
   const vmSymbolID sid = vmSymbols::find_sid(name);
+  //printf("VP was here 3!!>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> %s\n", name->as_utf8());
   // Privileged code can use all annotations.  Other code silently drops some.
   const bool privileged = loader_data->is_boot_class_loader_data() ||
                           loader_data->is_platform_class_loader_data() ||
