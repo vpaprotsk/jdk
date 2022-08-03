@@ -6022,14 +6022,7 @@ const XMMRegister B0, const XMMRegister B1, const XMMRegister B2,
 const XMMRegister R0, const XMMRegister R1, const XMMRegister R2,
 const XMMRegister R1P, const XMMRegister R2P,
 const XMMRegister S0, const XMMRegister S1, const XMMRegister S2, 
-const XMMRegister S1P, const XMMRegister S2P,
-const XMMRegister P0_L, const XMMRegister P0_H,
-const XMMRegister P1_L, const XMMRegister P1_H,
-const XMMRegister P2_L, const XMMRegister P2_H,
-const XMMRegister Q0_L, const XMMRegister Q0_H,
-const XMMRegister Q1_L, const XMMRegister Q1_H,
-const XMMRegister Q2_L, const XMMRegister Q2_H,
-const XMMRegister ZTMP1, const XMMRegister ZTMP2, const Register polyCP) {
+const XMMRegister S1P, const XMMRegister S2P, const Register polyCP) {
   // const XMMRegister A0, const XMMRegister A1, const XMMRegister A2, const XMMRegister A3, const XMMRegister A4,    
   // const XMMRegister R0, const XMMRegister R1, const XMMRegister R2, const XMMRegister R3, const XMMRegister R4,    
   // const XMMRegister R1P, const XMMRegister R2P, const XMMRegister R3P, const XMMRegister R4P,
@@ -6068,6 +6061,22 @@ const XMMRegister ZTMP1, const XMMRegister ZTMP2, const Register polyCP) {
     // Q2_H    %28 ; [clobbered] ZMM register to contain p[2] of the 8 blocks
     // ZTMP1   %29 ; [clobbered] Temporary ZMM register
     // ZTMP2   %30 ; [clobbered] Temporary ZMM register
+
+
+const XMMRegister P0_L = xmm0;
+const XMMRegister P0_H = xmm1;
+const XMMRegister P1_L = xmm2;
+const XMMRegister P1_H = xmm3;
+const XMMRegister P2_L = xmm4;
+const XMMRegister P2_H = xmm5;
+const XMMRegister Q0_L = xmm6;
+const XMMRegister Q0_H = xmm7;
+const XMMRegister Q1_L = xmm8;
+const XMMRegister Q1_H = xmm9;
+const XMMRegister Q2_L = xmm10;
+const XMMRegister Q2_H = xmm11;
+const XMMRegister ZTMP1 = xmm12;
+const XMMRegister ZTMP2 = xmm29;
 
         // Reset accumulator
         __ evpxorq(P0_L, P0_L, P0_L, Assembler::AVX_512bit);
@@ -6887,7 +6896,7 @@ __ lea(polyCP, ExternalAddress(StubRoutines::poly1305_processBlocksCP())); //
     // cmp     %%T0, POLY1305_BLOCK_SIZE*16
     //jbe     %%_poly1305_blocks_loop_end
     __ jcc(Assembler::less, L_process256LoopDone);
-// #if 1
+#if 0
     // zmm13-zmm18 contain the 16 blocks of message plus the previous accumulator
     // zmm22-24 contain the 5x44-bit limbs of the powers of R
     // zmm25-26 contain the 5x44-bit limbs of the powers of R' (5*4*R)
@@ -6895,6 +6904,79 @@ __ lea(polyCP, ExternalAddress(StubRoutines::poly1305_processBlocksCP())); //
     poly1305_multiply16_add_avx512(xmm13, xmm14, xmm15, xmm16, xmm17, xmm18,  // MSG 16 blocks
                                   xmm22, xmm23, xmm24, xmm25, xmm26, //R^16..R^16, 4*5*R^16
                                   input, length, polyCP); //Load the next 16 blocks
+#else
+    poly1305_multiply16_avx512(xmm13, xmm14, xmm15, xmm16, xmm17, xmm18, // MSG/ACC 16 blocks
+                              xmm22, xmm23, xmm24, xmm25, xmm26, //R^16..R^16, 4*5*R^16
+                              xmm22, xmm23, xmm24, xmm25, xmm26, //R^16..R^16, 4*5*R^16
+                              polyCP);
+              {  
+  const XMMRegister A0 = xmm13;
+  const XMMRegister A1 = xmm14;
+  const XMMRegister A2 = xmm15;
+  const XMMRegister B0 = xmm16;
+  const XMMRegister B1 = xmm17;
+  const XMMRegister B2 = xmm18;
+                  // const XMMRegister ZTMP1 = xmm30;
+  const XMMRegister ZTMP2 = xmm0; //xmm31;
+  const XMMRegister ZTMP3 = xmm1;
+  const XMMRegister ZTMP4 = xmm2;
+  const XMMRegister ZTMP5 = xmm3;
+  const XMMRegister ZTMP6 = xmm4;
+  const XMMRegister ZTMP7 = xmm5;
+  const XMMRegister ZTMP8 = xmm6;
+  const XMMRegister ZTMP9 = xmm7; //xmm12;                        
+          // Load next block of data (128 bytes)
+          __ evmovdquq(ZTMP5, Address(input, 0), Assembler::AVX_512bit);
+          __ evmovdquq(ZTMP2, Address(input, 64), Assembler::AVX_512bit);
+
+          // Interleave new blocks of data
+          __ evpunpckhqdq(ZTMP3, ZTMP5, ZTMP2, Assembler::AVX_512bit);
+          __ evpunpcklqdq(ZTMP5, ZTMP5, ZTMP2, Assembler::AVX_512bit);
+
+          // Highest 42-bit limbs of new blocks
+          __ vpsrlq(ZTMP6, ZTMP3, 24, Assembler::AVX_512bit);
+          __ vporq(ZTMP6, ZTMP6, Address(polyCP, high_bit), Assembler::AVX_512bit); // Add 2^128 to all 8 final qwords of the message
+
+          // Middle 44-bit limbs of new blocks
+          __ vpsrlq(ZTMP2, ZTMP5, 44, Assembler::AVX_512bit);
+          __ vpsllq(ZTMP4, ZTMP3, 20, Assembler::AVX_512bit);
+          __ vpternlogq(ZTMP2, 0xA8, ZTMP4, Address(polyCP, mask_44), Assembler::AVX_512bit); // (A OR B AND C)
+
+          // Lowest 44-bit limbs of new blocks 
+          __ vpandq(ZTMP5, ZTMP5, Address(polyCP, mask_44), Assembler::AVX_512bit);
+          // {ZTMP6,ZTMP2,ZTMP5}
+
+          // Load next block of data (128 bytes)
+          __ evmovdquq(ZTMP8, Address(input, 64*2), Assembler::AVX_512bit);
+          __ evmovdquq(ZTMP9, Address(input, 64*3), Assembler::AVX_512bit);
+
+          // Interleave new blocks of data
+          __ evpunpckhqdq(ZTMP3, ZTMP8, ZTMP9, Assembler::AVX_512bit);
+          __ evpunpcklqdq(ZTMP8, ZTMP8, ZTMP9, Assembler::AVX_512bit);
+
+          // Highest 42-bit limbs of new blocks
+          __ vpsrlq(ZTMP7, ZTMP3, 24, Assembler::AVX_512bit);
+          __ vporq(ZTMP7, ZTMP7, Address(polyCP, high_bit), Assembler::AVX_512bit); // Add 2^128 to all 8 final qwords of the message
+
+          // Middle 44-bit limbs of new blocks
+          __ vpsrlq(ZTMP9, ZTMP8, 44, Assembler::AVX_512bit);
+          __ vpsllq(ZTMP4, ZTMP3, 20, Assembler::AVX_512bit);
+          __ vpternlogq(ZTMP9, 0xA8, ZTMP4, Address(polyCP, mask_44), Assembler::AVX_512bit); // (A OR B AND C)
+
+          // Lowest 44-bit limbs of new blocks
+          __ vpandq(ZTMP8, ZTMP8, Address(polyCP, mask_44), Assembler::AVX_512bit);
+          // {ZTMP7,ZTMP9,ZTMP8} // {ZTMP6,ZTMP2,ZTMP5} ZTMP7|ZTMP9|ZTMP8|ZTMP6|ZTMP2|ZTMP5
+
+          __ vpaddq(A2, A2, ZTMP6, Assembler::AVX_512bit); //Add highest bits from new blocks to accumulator
+          __ vpaddq(B2, B2, ZTMP7, Assembler::AVX_512bit); // Add highest bits from new blocks to accumulator
+          __ vpaddq(A0, A0, ZTMP5, Assembler::AVX_512bit); // Add low 42-bit bits from new blocks to accumulator
+          __ vpaddq(A1, A1, ZTMP2, Assembler::AVX_512bit); // Add medium 42-bit bits from new blocks to accumulator
+          __ vpaddq(B0, B0, ZTMP8, Assembler::AVX_512bit); // Add low 42-bit bits from new blocks to accumulator
+          __ vpaddq(B1, B1, ZTMP9, Assembler::AVX_512bit); // Add medium 42-bit bits from new blocks to accumulator
+
+          // {ZTMP7,ZTMP9,ZTMP8} // {ZTMP6,ZTMP2,ZTMP5}
+              }
+#endif
 // #if 0
     __ subl(length, 16*16);
     __ lea(input, Address(input,16*16)); 
@@ -6947,11 +7029,10 @@ __ lea(polyCP, ExternalAddress(StubRoutines::poly1305_processBlocksCP())); //
     __ vpsllq(xmm26, xmm26, 2, Assembler::AVX_512bit);
 
     // POLY1305_MUL_REDUCE_VEC16 
-    poly1305_multiply16_avx512(xmm13, xmm14, xmm15, xmm16, xmm17, xmm18, // MSG 16 blocks
+    poly1305_multiply16_avx512(xmm13, xmm14, xmm15, xmm16, xmm17, xmm18, // MSG/ACC 16 blocks
                               xmm19, xmm20, xmm21, xmm27, xmm28, // R^16-R^9, R1P, R2P
                               xmm22, xmm23, xmm24, xmm25, xmm26, // R^8-R, R1P, R2P
-                              xmm0, xmm1, xmm2, xmm3, xmm4, xmm5, xmm6,
-                              xmm7, xmm8, xmm9, xmm10, xmm11, xmm12, xmm29, polyCP);
+                              polyCP);
 //#if 0
 // #endif
 
