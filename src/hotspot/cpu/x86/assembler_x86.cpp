@@ -4484,7 +4484,32 @@ void Assembler::vpinsrq(XMMRegister dst, XMMRegister nds, Register src, int imm8
   InstructionAttr attributes(AVX_128bit, /* vex_w */ true, /* legacy_mode */ _legacy_mode_dq, /* no_mask_reg */ true, /* uses_vl */ false);
   int encode = vex_prefix_and_encode(dst->encoding(), nds->encoding(), src->encoding(), VEX_SIMD_66, VEX_OPCODE_0F_3A, &attributes);
   emit_int24(0x22, (0xC0 | encode), imm8);
+
 }
+
+//Unroll 8 blocks: H8 = ((H0 + M1) * R^8 + M2 * R^7 + M3 * R^6 + M4 * R^5 +
+//                    M5 * R^4 + M6 * R^3 + M7 * R^2 + M8 * R)
+// poly1305 {
+//   if (length > 256) {
+//     load acc and R into 44-bit limbs;
+//     compute and 'splat' R^2, R^3, R^4, R^5, R^6, R^7 ... R^16, 5*R^4, 5*R^8, 5*R^16, 4*5*R^4, 4*5*R^8, 4*5*R^16; // with scalar mul and 8-block mul
+    
+//     for (each full 16-byte-block) {
+//       acc *= 16block poly multiply and message(input)
+//     }
+
+//     // ignore 8-byte-block case for now
+
+//     collapse sum into scalar;
+//   }
+
+//   for (each full 16-byte-block) {
+//     acc *= scalar poly multiply(input)
+//   }
+
+//   // No padding in JAVA, fallback to 32-bit limbs in bytecode
+//   // Ignored some shuffle helpers, need to verify
+// }
 
 void Assembler::pinsrw(XMMRegister dst, Register src, int imm8) {
   assert(VM_Version::supports_sse2(), "");
@@ -5212,6 +5237,40 @@ void Assembler::punpcklqdq(XMMRegister dst, XMMRegister src) {
   emit_int16(0x6C, (0xC0 | encode));
 }
 
+void Assembler::evpunpcklqdq(XMMRegister dst, XMMRegister src1, XMMRegister src2, int vector_len) {
+  evpunpcklqdq(dst, k0, src1, src2, false, vector_len);
+}
+
+void Assembler::evpunpcklqdq(XMMRegister dst, KRegister mask, XMMRegister src1, XMMRegister src2, bool merge, int vector_len) {
+  assert(VM_Version::supports_avx512vl(), ""); //VP: avx512f??
+  InstructionAttr attributes(vector_len, /* rex_w */ true, /* legacy_mode */ false, /* no_mask_reg */ true, /* uses_vl */ true);
+  attributes.set_is_evex_instruction();
+  attributes.set_embedded_opmask_register_specifier(mask);
+  if (merge) {
+    attributes.reset_is_clear_context();
+  }
+
+  int encode = vex_prefix_and_encode(dst->encoding(), src1->encoding(), src2->encoding(), VEX_SIMD_66, VEX_OPCODE_0F, &attributes);
+  emit_int16(0x6C, (0xC0 | encode));
+}
+
+void Assembler::evpunpckhqdq(XMMRegister dst, XMMRegister src1, XMMRegister src2, int vector_len) {
+  evpunpckhqdq(dst, k0, src1, src2, false, vector_len);
+}
+
+void Assembler::evpunpckhqdq(XMMRegister dst, KRegister mask, XMMRegister src1, XMMRegister src2, bool merge, int vector_len) {
+  assert(VM_Version::supports_avx512vl(), ""); //VP: avx512f??
+  InstructionAttr attributes(vector_len, /* rex_w */ true, /* legacy_mode */ false, /* no_mask_reg */ true, /* uses_vl */ true);
+  attributes.set_is_evex_instruction();
+  attributes.set_embedded_opmask_register_specifier(mask);
+  if (merge) {
+    attributes.reset_is_clear_context();
+  }
+
+  int encode = vex_prefix_and_encode(dst->encoding(), src1->encoding(), src2->encoding(), VEX_SIMD_66, VEX_OPCODE_0F, &attributes);
+  emit_int16(0x6D, (0xC0 | encode));
+}
+
 void Assembler::push(int32_t imm32) {
   // in 64bits we push 64bits onto the stack but only
   // take a 32bit immediate
@@ -5646,6 +5705,11 @@ void Assembler::shldl(Register dst, Register src, int8_t imm8) {
   emit_int32(0x0F, (unsigned char)0xA4, (0xC0 | encode), imm8);
 }
 
+void Assembler::shldq(Register dst, Register src, int8_t imm8) {
+  int encode = prefixq_and_encode(src->encoding(), dst->encoding());
+  emit_int32(0x0F, (unsigned char)0xA4, (0xC0 | encode), imm8);
+}
+
 void Assembler::shrdl(Register dst, Register src) {
   int encode = prefix_and_encode(src->encoding(), dst->encoding());
   emit_int24(0x0F, (unsigned char)0xAD, (0xC0 | encode));
@@ -5653,6 +5717,11 @@ void Assembler::shrdl(Register dst, Register src) {
 
 void Assembler::shrdl(Register dst, Register src, int8_t imm8) {
   int encode = prefix_and_encode(src->encoding(), dst->encoding());
+  emit_int32(0x0F, (unsigned char)0xAC, (0xC0 | encode), imm8);
+}
+
+void Assembler::shrdq(Register dst, Register src, int8_t imm8) {
+  int encode = prefixq_and_encode(src->encoding(), dst->encoding());
   emit_int32(0x0F, (unsigned char)0xAC, (0xC0 | encode), imm8);
 }
 
@@ -7499,6 +7568,16 @@ void Assembler::vpandq(XMMRegister dst, XMMRegister nds, XMMRegister src, int ve
   emit_int16((unsigned char)0xDB, (0xC0 | encode));
 }
 
+void Assembler::vpandq(XMMRegister dst, XMMRegister nds, Address src, int vector_len) {
+  assert(UseAVX > 0, "requires some form of AVX");
+  InstructionMark im(this);
+  InstructionAttr attributes(vector_len, /* vex_w */ true, /* legacy_mode */ false, /* no_mask_reg */ true, /* uses_vl */ true);
+  attributes.set_address_attributes(/* tuple_type */ EVEX_FV, /* input_size_in_bits */ EVEX_32bit); //VP: EVEX_32bit??
+  vex_prefix(src, nds->encoding(), dst->encoding(), VEX_SIMD_66, VEX_OPCODE_0F, &attributes);
+  emit_int8((unsigned char)0xDB);
+  emit_operand(dst, src);
+}
+
 //Variable Shift packed integers logically left.
 void Assembler::vpsllvd(XMMRegister dst, XMMRegister src, XMMRegister shift, int vector_len) {
   assert(UseAVX > 1, "requires AVX2");
@@ -7609,6 +7688,7 @@ void Assembler::vpor(XMMRegister dst, XMMRegister nds, Address src, int vector_l
   emit_operand(dst, src);
 }
 
+// FIXME rename evporq
 void Assembler::vporq(XMMRegister dst, XMMRegister nds, XMMRegister src, int vector_len) {
   assert(VM_Version::supports_evex(), "");
   InstructionAttr attributes(vector_len, /* vex_w */ true, /* legacy_mode */ false, /* no_mask_reg */ true, /* uses_vl */ true);
@@ -7616,6 +7696,17 @@ void Assembler::vporq(XMMRegister dst, XMMRegister nds, XMMRegister src, int vec
   emit_int16((unsigned char)0xEB, (0xC0 | encode));
 }
 
+// FIXME rename evporq
+void Assembler::vporq(XMMRegister dst, XMMRegister nds, Address src, int vector_len) {
+  assert(VM_Version::supports_evex(), "");
+  InstructionMark im(this);
+  InstructionAttr attributes(vector_len, /* vex_w */ true, /* legacy_mode */ false, /* no_mask_reg */ true, /* uses_vl */ true);
+  attributes.set_address_attributes(/* tuple_type */ EVEX_FV, /* input_size_in_bits */ EVEX_32bit);
+  vex_prefix(src, nds->encoding(), dst->encoding(), VEX_SIMD_66, VEX_OPCODE_0F, &attributes);
+  emit_int8((unsigned char)0xEB);
+  emit_operand(dst, src);
+  //FIXME: evporq(dst, k0..)
+}
 
 void Assembler::evpord(XMMRegister dst, KRegister mask, XMMRegister nds, XMMRegister src, bool merge, int vector_len) {
   assert(VM_Version::supports_evex(), "");
@@ -7798,6 +7889,7 @@ void Assembler::evporq(XMMRegister dst, KRegister mask, XMMRegister nds, Address
   assert(vector_len == AVX_512bit || VM_Version::supports_avx512vl(), "");
   InstructionMark im(this);
   InstructionAttr attributes(vector_len, /* vex_w */ true,/* legacy_mode */ false, /* no_mask_reg */ false,/* uses_vl */ true);
+  //attributes.set_address_attributes(/* tuple_type */ EVEX_FV,/* input_size_in_bits */ EVEX_64bit);
   attributes.set_address_attributes(/* tuple_type */ EVEX_FV,/* input_size_in_bits */ EVEX_32bit);
   attributes.set_is_evex_instruction();
   attributes.set_embedded_opmask_register_specifier(mask);
@@ -7941,6 +8033,21 @@ void Assembler::vpternlogq(XMMRegister dst, int imm8, XMMRegister src2, XMMRegis
   emit_int8((unsigned char)(0xC0 | encode));
   emit_int8(imm8);
 }
+
+void Assembler::vpternlogq(XMMRegister dst, int imm8, XMMRegister src2, Address src3, int vector_len) {
+  assert(VM_Version::supports_evex(), "requires EVEX support");
+  assert(vector_len == Assembler::AVX_512bit || VM_Version::supports_avx512vl(), "requires VL support");
+  assert(dst != xnoreg, "sanity");
+  InstructionMark im(this);
+  InstructionAttr attributes(vector_len, /* vex_w */ true, /* legacy_mode */ false, /* no_mask_reg */ true, /* uses_vl */ true);
+  attributes.set_is_evex_instruction();
+  attributes.set_address_attributes(/* tuple_type */ EVEX_FV, /* input_size_in_bits */ EVEX_64bit);
+  vex_prefix(src3, src2->encoding(), dst->encoding(), VEX_SIMD_66, VEX_OPCODE_0F_3A, &attributes);
+  emit_int8(0x25);
+  emit_operand(dst, src3);
+  emit_int8(imm8);
+}
+
 
 // vinserti forms
 

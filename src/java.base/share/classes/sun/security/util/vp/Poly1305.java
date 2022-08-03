@@ -209,7 +209,10 @@ final public class Poly1305 {
                 // E2E test
                 byte[] accExpected = this.a.asByteArray(BLOCK_LENGTH+1);
                 if (!java.util.Arrays.equals(acc, accExpected)) {
-                    throw new RuntimeException("VP was here; fuzzing failed!!!");
+                    java.util.HexFormat hex = java.util.HexFormat.of();
+                    throw new RuntimeException("VP was here; fuzzing failed!!!" + 
+                    "\nVP was here>A-asm " + hex.formatHex(acc) + 
+                    "\nVP was here>A-exp " + hex.formatHex(accExpected));
                 }
             }
             
