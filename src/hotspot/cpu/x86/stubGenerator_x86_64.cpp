@@ -6540,6 +6540,29 @@ void poly1305_multiply_avx512(
     __ adcl(A2, 0); //DWORD(A2), 0);
   }
 
+  void poly1305_limbs(
+      const Register M0, const Register M1,
+      const Register A0, const Register A1, const Register A2, 
+      bool padMSG)
+  {
+    // Interleave new blocks of data
+    __ evpunpckhqdq(ZTMP3, ZTMP5, ZTMP2, Assembler::AVX_512bit);
+    __ evpunpcklqdq(ZTMP5, ZTMP5, ZTMP2, Assembler::AVX_512bit);
+
+    // Highest 42-bit limbs of new blocks
+    __ vpsrlq(ZTMP6, ZTMP3, 24, Assembler::AVX_512bit);
+    __ vporq(ZTMP6, ZTMP6, Address(polyCP, high_bit), Assembler::AVX_512bit); // Add 2^128 to all 8 final qwords of the message
+
+    // Middle 44-bit limbs of new blocks
+    __ vpsrlq(ZTMP2, ZTMP5, 44, Assembler::AVX_512bit);
+    __ vpsllq(ZTMP4, ZTMP3, 20, Assembler::AVX_512bit);
+    __ vpternlogq(ZTMP2, 0xA8, ZTMP4, Address(polyCP, mask_44), Assembler::AVX_512bit); // (A OR B AND C)
+
+    // Lowest 44-bit limbs of new blocks 
+    __ vpandq(ZTMP5, ZTMP5, Address(polyCP, mask_44), Assembler::AVX_512bit);
+    // {ZTMP6,ZTMP2,ZTMP5}
+  }
+
   // void processBlocks(byte[] input, int offset, int len, byte[] a, byte[] r)
   address generate_poly1305_processBlocks()
   {
@@ -6929,6 +6952,10 @@ __ lea(polyCP, ExternalAddress(StubRoutines::poly1305_processBlocksCP())); //
           __ evmovdquq(ZTMP5, Address(input, 0), Assembler::AVX_512bit);
           __ evmovdquq(ZTMP2, Address(input, 64), Assembler::AVX_512bit);
 
+          // poly1305_limbs(
+          //   ZTMP5, ZTMP2,
+          //   ZTMP5, ZTMP2, ZTMP6,
+          //   true);
           // Interleave new blocks of data
           __ evpunpckhqdq(ZTMP3, ZTMP5, ZTMP2, Assembler::AVX_512bit);
           __ evpunpcklqdq(ZTMP5, ZTMP5, ZTMP2, Assembler::AVX_512bit);
