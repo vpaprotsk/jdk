@@ -4848,7 +4848,7 @@ void Assembler::evpmadd52luq(XMMRegister dst, KRegister mask, XMMRegister src1, 
   }
   
   int encode = vex_prefix_and_encode(dst->encoding(), src1->encoding(), src2->encoding(), VEX_SIMD_66, VEX_OPCODE_0F_38, &attributes);
-  emit_int16(0xB4, (0xC0 | encode));
+  emit_int16((unsigned char)0xB4, (0xC0 | encode));
 }
 
 void Assembler::evpmadd52huq(XMMRegister dst, XMMRegister src1, XMMRegister src2, int vector_len) {
@@ -4865,7 +4865,7 @@ void Assembler::evpmadd52huq(XMMRegister dst, KRegister mask, XMMRegister src1, 
   }
 
   int encode = vex_prefix_and_encode(dst->encoding(), src1->encoding(), src2->encoding(), VEX_SIMD_66, VEX_OPCODE_0F_38, &attributes);
-  emit_int16(0xB5, (0xC0 | encode));
+  emit_int16((unsigned char)0xB5, (0xC0 | encode));
 }
 
 void Assembler::evpdpwssd(XMMRegister dst, XMMRegister nds, XMMRegister src, int vector_len) {
