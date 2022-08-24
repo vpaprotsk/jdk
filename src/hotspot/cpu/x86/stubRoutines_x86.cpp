@@ -82,6 +82,10 @@ address StubRoutines::x86::_join_1_2_base64 = NULL;
 address StubRoutines::x86::_join_2_3_base64 = NULL;
 address StubRoutines::x86::_decoding_table_base64 = NULL;
 address StubRoutines::x86::_ghash_poly512_addr = NULL;
+address StubRoutines::x86::_poly1305_mask_addr = NULL;
+address StubRoutines::x86::_poly1305_mask44 = NULL;
+address StubRoutines::x86::_poly1305_mask42 = NULL;
+address StubRoutines::x86::_poly1305_mask_pad = NULL;
 #endif
 address StubRoutines::x86::_pshuffle_byte_flip_mask_addr = NULL;
 

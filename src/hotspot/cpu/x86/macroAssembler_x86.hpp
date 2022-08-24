@@ -952,6 +952,22 @@ private:
                                   XMMRegister aad_hashx, Register in, Register out, Register data, Register pos, bool reduction,
                                   XMMRegister addmask, bool no_ghash_input, Register rounds, Register ghash_pos,
                                   bool final_reduction, int index, XMMRegister counter_inc_mask);
+  void poly1305_process_blocks_avx512(const Register input, const Register length, 
+                                      const Register A0, const Register A1, const Register A2,
+                                      const Register R0, const Register R1, const Register C1);
+  void poly1305_limbs_avx512(const XMMRegister D0, const XMMRegister D1,
+                      const XMMRegister L0, const XMMRegister L1, const XMMRegister L2, bool padMSG, const Register polyCP);
+  void poly1305_multiply_scalar(const Register A0, const Register A1, const Register A2,
+                         const Register R0, const Register R1, const Register C1, bool only128);
+  void poly1305_multiply8_avx512(const XMMRegister A0, const XMMRegister A1, const XMMRegister A2,   
+                                 const XMMRegister R0, const XMMRegister R1, const XMMRegister R2, const XMMRegister R1P, const XMMRegister R2P, const Register polyCP);
+  void poly1305_multiply16_avx512(const XMMRegister A0, const XMMRegister A1, const XMMRegister A2,
+                                  const XMMRegister B0, const XMMRegister B1, const XMMRegister B2,
+                                  const XMMRegister R0, const XMMRegister R1, const XMMRegister R2,
+                                  const XMMRegister R1P, const XMMRegister R2P,
+                                  const XMMRegister S0, const XMMRegister S1, const XMMRegister S2, 
+                                  const XMMRegister S1P, const XMMRegister S2P, const Register polyCP);
+
 public:
   void aesecb_encrypt(Register source_addr, Register dest_addr, Register key, Register len);
   void aesecb_decrypt(Register source_addr, Register dest_addr, Register key, Register len);
@@ -959,6 +975,7 @@ public:
                       Register len_reg, Register used, Register used_addr, Register saved_encCounter_start);
   void aesgcm_encrypt(Register in, Register len, Register ct, Register out, Register key,
                       Register state, Register subkeyHtbl, Register avx512_subkeyHtbl, Register counter);
+  void poly1305_process_blocks(Register input, Register length, Register accumulator, Register R);
 
 #endif
 
