@@ -961,12 +961,6 @@ private:
                          const Register R0, const Register R1, const Register C1, bool only128);
   void poly1305_multiply8_avx512(const XMMRegister A0, const XMMRegister A1, const XMMRegister A2,   
                                  const XMMRegister R0, const XMMRegister R1, const XMMRegister R2, const XMMRegister R1P, const XMMRegister R2P, const Register polyCP);
-  void poly1305_multiply16_avx512(const XMMRegister A0, const XMMRegister A1, const XMMRegister A2,
-                                  const XMMRegister B0, const XMMRegister B1, const XMMRegister B2,
-                                  const XMMRegister R0, const XMMRegister R1, const XMMRegister R2,
-                                  const XMMRegister R1P, const XMMRegister R2P,
-                                  const XMMRegister S0, const XMMRegister S1, const XMMRegister S2, 
-                                  const XMMRegister S1P, const XMMRegister S2P, const Register polyCP);
 
 public:
   void aesecb_encrypt(Register source_addr, Register dest_addr, Register key, Register len);
