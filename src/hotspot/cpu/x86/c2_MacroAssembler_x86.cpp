@@ -1691,20 +1691,14 @@ void C2_MacroAssembler::load_constant_vector(BasicType bt, XMMRegister dst, Inte
   }
 }
 
-void C2_MacroAssembler::load_iota_indices(XMMRegister dst, int vlen_in_bytes) {
-  ExternalAddress addr(StubRoutines::x86::vector_iota_indices());
-  if (vlen_in_bytes <= 4) {
-    movdl(dst, addr);
-  } else if (vlen_in_bytes == 8) {
-    movq(dst, addr);
-  } else if (vlen_in_bytes == 16) {
-    movdqu(dst, addr, noreg);
-  } else if (vlen_in_bytes == 32) {
-    vmovdqu(dst, addr, noreg);
-  } else {
-    assert(vlen_in_bytes == 64, "%d", vlen_in_bytes);
-    evmovdqub(dst, k0, addr, false /*merge*/, Assembler::AVX_512bit, noreg);
+void C2_MacroAssembler::load_iota_indices(XMMRegister dst, int vlen_in_bytes, BasicType bt) {
+  // The iota indices are ordered by type B/S/I/L/F/D, and the offset between two types is 64.
+  int offset = exact_log2(type2aelembytes(bt)) << 6;
+  if (is_floating_point_type(bt)) {
+    offset += 128;
   }
+  ExternalAddress addr(StubRoutines::x86::vector_iota_indices() + offset);
+  load_vector(dst, addr, vlen_in_bytes);
 }
 
 // Reductions for vectors of bytes, shorts, ints, longs, floats, and doubles.
@@ -1757,7 +1751,7 @@ void C2_MacroAssembler::reduce_operation_128(BasicType typ, int opcode, XMMRegis
       }
       break;
     case Op_MulReductionVL: assert(UseAVX > 2, "required");
-                            vpmullq(dst, dst, src, vector_len); break;
+                            evpmullq(dst, dst, src, vector_len); break;
     default:                assert(false, "wrong opcode");
   }
 }
@@ -1805,7 +1799,7 @@ void C2_MacroAssembler::reduce_operation_256(BasicType typ, int opcode, XMMRegis
         default:            assert(false, "wrong type");
       }
       break;
-    case Op_MulReductionVL: vpmullq(dst, src1, src2, vector_len); break;
+    case Op_MulReductionVL: evpmullq(dst, src1, src2, vector_len); break;
     default:                assert(false, "wrong opcode");
   }
 }
@@ -5285,7 +5279,7 @@ void C2_MacroAssembler::vector_reverse_bit(BasicType bt, XMMRegister dst, XMMReg
     // Get the reverse bit sequence of lower nibble of each byte.
     vmovdqu(xtmp1, ExternalAddress(StubRoutines::x86::vector_reverse_bit_lut()), vec_enc, noreg);
     vbroadcast(T_INT, xtmp2, 0x0F0F0F0F, rtmp, vec_enc);
-    vpandq(dst, xtmp2, src, vec_enc);
+    evpandq(dst, xtmp2, src, vec_enc);
     vpshufb(dst, xtmp1, dst, vec_enc);
     vpsllq(dst, dst, 4, vec_enc);
 
@@ -5296,7 +5290,7 @@ void C2_MacroAssembler::vector_reverse_bit(BasicType bt, XMMRegister dst, XMMReg
 
     // Perform logical OR operation b/w left shifted reverse bit sequence of lower nibble and
     // right shifted reverse bit sequence of upper nibble to obtain the reverse bit sequence of each byte.
-    vporq(xtmp2, dst, xtmp2, vec_enc);
+    evporq(xtmp2, dst, xtmp2, vec_enc);
     vector_reverse_byte(bt, dst, xtmp2, vec_enc);
 
   } else if(vec_enc == Assembler::AVX_512bit) {
@@ -5351,11 +5345,11 @@ void C2_MacroAssembler::vector_reverse_bit_gfni(BasicType bt, XMMRegister dst, X
 void C2_MacroAssembler::vector_swap_nbits(int nbits, int bitmask, XMMRegister dst, XMMRegister src,
                                           XMMRegister xtmp1, Register rtmp, int vec_enc) {
   vbroadcast(T_INT, xtmp1, bitmask, rtmp, vec_enc);
-  vpandq(dst, xtmp1, src, vec_enc);
+  evpandq(dst, xtmp1, src, vec_enc);
   vpsllq(dst, dst, nbits, vec_enc);
   vpandn(xtmp1, xtmp1, src, vec_enc);
   vpsrlq(xtmp1, xtmp1, nbits, vec_enc);
-  vporq(dst, dst, xtmp1, vec_enc);
+  evporq(dst, dst, xtmp1, vec_enc);
 }
 
 void C2_MacroAssembler::vector_reverse_byte64(BasicType bt, XMMRegister dst, XMMRegister src, XMMRegister xtmp1,
