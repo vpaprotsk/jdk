@@ -43,7 +43,8 @@ public class SignatureBench extends CryptoBase {
     @Param({"SHA256withDSA"})
     private String algorithm;
 
-    @Param({"1024", "16384"})
+    //@Param({"1024", "16384"})
+    @Param({""+(256/8)})
     int dataSize;
 
     @Param({"1024"})

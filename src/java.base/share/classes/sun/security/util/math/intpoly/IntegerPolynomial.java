@@ -61,7 +61,7 @@ import java.util.Arrays;
 
 public abstract sealed class IntegerPolynomial implements IntegerFieldModuloP
     permits IntegerPolynomial1305, IntegerPolynomial25519,
-            IntegerPolynomial448, IntegerPolynomialP256,
+            IntegerPolynomial448, IntegerPolynomialP256, MontgomeryIntegerPolynomialP256, IntegerPolynomialP256Fast,
             IntegerPolynomialP384, IntegerPolynomialP521,
             IntegerPolynomialModBinP, P256OrderField,
             P384OrderField, P521OrderField,
@@ -327,10 +327,10 @@ public abstract sealed class IntegerPolynomial implements IntegerFieldModuloP
     }
 
     protected void setLimbsValuePositive(BigInteger v, long[] limbs) {
-        assert bitsPerLimb < 32;
+        //assert bitsPerLimb < 32;
         long limbMask = (1L << bitsPerLimb) - 1;
         for (int i = 0; i < limbs.length; i++) {
-            limbs[i] = v.intValue() & limbMask;
+            limbs[i] = v.longValue() & limbMask;
             v = v.shiftRight(bitsPerLimb);
         }
     }

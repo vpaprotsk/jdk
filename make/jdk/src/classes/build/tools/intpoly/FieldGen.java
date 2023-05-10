@@ -968,10 +968,10 @@ public class FieldGen {
             result.appendLine(indexedExpr(isArray, prefix, (index - pos))
                     + " " + accOp + " " + x + ";");
         } else {
-            int secondPos = reduceBits / params.getBitsPerLimb();
-            int bitOffset = (secondPos + 1) * params.getBitsPerLimb()
+            int secondPos = reduceBits / params.getBitsPerLimb(); // 32/52 == 0
+            int bitOffset = (secondPos + 1) * params.getBitsPerLimb() // (0+1)*52-32 == 20
                     - reduceBits;
-            int rightBitOffset = params.getBitsPerLimb() - bitOffset;
+            int rightBitOffset = params.getBitsPerLimb() - bitOffset; // 52-30 == 22
             result.appendLine(indexedExpr(isArray, prefix,
                     (index - (secondPos + 1))) + " " + accOp
                     + " (" + x + " << " + bitOffset + ") & LIMB_MASK;");
