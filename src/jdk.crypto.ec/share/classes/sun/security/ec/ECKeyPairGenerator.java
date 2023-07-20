@@ -103,6 +103,7 @@ public final class ECKeyPairGenerator extends KeyPairGeneratorSpi {
                 throw new InvalidAlgorithmParameterException(
                     "Unknown curve name: " + name);
             }
+            ecSpec.montgomery2 = ((ECGenParameterSpec) params).montgomery;
         } else {
             throw new InvalidAlgorithmParameterException(
                 "ECParameterSpec or ECGenParameterSpec required for EC");

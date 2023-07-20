@@ -32,7 +32,7 @@ import javax.crypto.KeyAgreement;
 public abstract class KeyAgreementBench extends CryptoBase {
 
     @Param({})
-    private String kpgAlgorithm;
+    protected String kpgAlgorithm;
 
     @Param({})
     private String algorithm;
@@ -41,9 +41,9 @@ public abstract class KeyAgreementBench extends CryptoBase {
     private int keyLength;
 
 
-    private KeyAgreement keyAgreement;
-    private PrivateKey privKey;
-    private PublicKey pubKey;
+    protected KeyAgreement keyAgreement;
+    protected PrivateKey privKey;
+    protected PublicKey pubKey;
 
     @Setup
     public void setup() throws NoSuchAlgorithmException {
@@ -90,9 +90,38 @@ public abstract class KeyAgreementBench extends CryptoBase {
         @Param({"ECDH"})
         private String algorithm;
 
-        @Param({"256", "384", "521"})
+        //@Param({"256", "384", "521"})
+        @Param({"256"})
         private int keyLength;
 
+        @Param({"true","false"})
+        private boolean montgomery;
+
+        @Override
+        @Setup
+        public void setup() throws NoSuchAlgorithmException {
+            setupProvider();
+            try {
+                KeyPairGenerator generator = KeyPairGenerator.getInstance("EC");
+                java.security.SecureRandom rnd = new java.security.SecureRandom();
+                java.security.spec.ECGenParameterSpec spec = new java.security.spec.ECGenParameterSpec("secp256r1");
+                spec.montgomery = this.montgomery;
+                generator.initialize(spec, rnd);
+                // KeyPairGenerator generator = (prov == null) ?
+                //     KeyPairGenerator.getInstance(kpgAlgorithm) :
+                //     KeyPairGenerator.getInstance(kpgAlgorithm, prov);
+                // generator.initialize(keyLength);
+                KeyPair kpA = generator.generateKeyPair();
+                privKey = kpA.getPrivate();
+                KeyPair kpB = generator.generateKeyPair();
+                pubKey = kpB.getPublic();
+            } catch (InvalidAlgorithmParameterException e) {
+                throw new NoSuchAlgorithmException();
+            }
+            keyAgreement = (prov == null) ?
+                KeyAgreement.getInstance(algorithm) :
+                KeyAgreement.getInstance(algorithm, prov);
+        }
     }
 
     public static class XDH extends KeyAgreementBench {

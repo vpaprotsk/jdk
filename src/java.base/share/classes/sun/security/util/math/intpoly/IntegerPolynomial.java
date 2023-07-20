@@ -61,7 +61,7 @@ import java.util.Arrays;
 
 public abstract sealed class IntegerPolynomial implements IntegerFieldModuloP
     permits IntegerPolynomial1305, IntegerPolynomial25519,
-            IntegerPolynomial448, IntegerPolynomialP256,
+            IntegerPolynomial448, IntegerPolynomialP256, MontgomeryIntegerPolynomialP256,
             IntegerPolynomialP384, IntegerPolynomialP521,
             IntegerPolynomialModBinP, P256OrderField,
             P384OrderField, P521OrderField,
@@ -75,6 +75,7 @@ public abstract sealed class IntegerPolynomial implements IntegerFieldModuloP
     protected final int bitsPerLimb;
     private final long[] posModLimbs;
     private final int maxAdds;
+    private final int maxAddsAdd;
 
     /**
      * Reduce an IntegerPolynomial representation (a) and store the result
@@ -120,7 +121,11 @@ public abstract sealed class IntegerPolynomial implements IntegerFieldModuloP
         this.modulus = modulus;
         this.bitsPerLimb = bitsPerLimb;
         this.maxAdds = maxAdds;
-
+        if (bitsPerLimb>32) {
+            this.maxAddsAdd = 64 - bitsPerLimb;
+        } else {
+            this.maxAddsAdd = 32 - bitsPerLimb;
+        }
         posModLimbs = setPosModLimbs();
     }
 
@@ -327,10 +332,10 @@ public abstract sealed class IntegerPolynomial implements IntegerFieldModuloP
     }
 
     protected void setLimbsValuePositive(BigInteger v, long[] limbs) {
-        assert bitsPerLimb < 32;
+        //assert bitsPerLimb < 32;
         long limbMask = (1L << bitsPerLimb) - 1;
         for (int i = 0; i < limbs.length; i++) {
-            limbs[i] = v.intValue() & limbMask;
+            limbs[i] = v.longValue() & limbMask;
             v = v.shiftRight(bitsPerLimb);
         }
     }
@@ -558,13 +563,13 @@ public abstract sealed class IntegerPolynomial implements IntegerFieldModuloP
 
             // Reduce if required.
             // if (numAdds >= maxAdds) {
-            if (numAdds > 32 - bitsPerLimb) {
+            if (numAdds > maxAddsAdd) {
                reduce(limbs);
                numAdds = 0;
             }
 
             // if (b.numAdds >= maxAdds) {
-            if (b.numAdds > 32 - bitsPerLimb) {
+            if (b.numAdds > maxAddsAdd) {
                 reduce(b.limbs);
                 b.numAdds = 0;
             }
@@ -586,7 +591,7 @@ public abstract sealed class IntegerPolynomial implements IntegerFieldModuloP
                 newLimbs[i] = -limbs[i];
             }
 
-            return new ImmutableElement(newLimbs, numAdds);
+            return new ImmutableElement(newLimbs, numAdds+1);
         }
 
         protected long[] cloneLow(long[] limbs) {
@@ -637,12 +642,12 @@ public abstract sealed class IntegerPolynomial implements IntegerFieldModuloP
             Element other = (Element)arg;
 
             // Reduce if required.
-            if (numAdds > 32 - bitsPerLimb) {
+            if (numAdds > maxAddsAdd) {
                 reduce(limbs);
                 numAdds = 0;
             }
 
-            if (other.numAdds > 32 - bitsPerLimb) {
+            if (other.numAdds > maxAddsAdd) {
                 reduce(other.limbs);
                 other.numAdds = 0;
             }
@@ -770,13 +775,13 @@ public abstract sealed class IntegerPolynomial implements IntegerFieldModuloP
 
             // Reduce if required.
             // if (numAdds >= maxAdds) {
-            if (numAdds > 32 - bitsPerLimb) {
+            if (numAdds > maxAddsAdd) {
                reduce(limbs);
                numAdds = 0;
             }
 
             // if (b.numAdds >= maxAdds) {
-            if (b.numAdds > 32 - bitsPerLimb) {
+            if (b.numAdds > maxAddsAdd) {
                 reduce(b.limbs);
                 b.numAdds = 0;
             }
@@ -796,13 +801,13 @@ public abstract sealed class IntegerPolynomial implements IntegerFieldModuloP
 
             // Reduce if required.
             // if (numAdds >= maxAdds) {
-            if (numAdds > 32 - bitsPerLimb) {
+            if (numAdds > maxAddsAdd) {
                reduce(limbs);
                numAdds = 0;
             }
 
             // if (b.numAdds >= maxAdds) {
-            if (b.numAdds > 32 - bitsPerLimb) {
+            if (b.numAdds > maxAddsAdd) {
                 reduce(b.limbs);
                 b.numAdds = 0;
             }
@@ -812,6 +817,9 @@ public abstract sealed class IntegerPolynomial implements IntegerFieldModuloP
             }
 
             numAdds = Math.max(numAdds, b.numAdds) + 1;
+
+            // reduce(limbs);
+            //    numAdds = 0;
             return this;
         }
 
@@ -833,6 +841,7 @@ public abstract sealed class IntegerPolynomial implements IntegerFieldModuloP
             for (int i = 0; i < limbs.length; i++) {
                 limbs[i] = -limbs[i];
             }
+            numAdds++;
             return this;
         }
     }
