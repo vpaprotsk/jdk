@@ -3718,6 +3718,10 @@ void StubGenerator::generate_initial() {
     StubRoutines::_poly1305_processBlocks = generate_poly1305_processBlocks();
   }
 
+  if (UseIntPolyIntrinsics) {
+    StubRoutines::_intpoly_montgomeryMult_P256 = generate_intpoly_montgomeryMult_P256();
+  }
+
   if (UseCRC32CIntrinsics) {
     bool supports_clmul = VM_Version::supports_clmul();
     StubRoutines::x86::generate_CRC32C_table(supports_clmul);
