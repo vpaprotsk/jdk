@@ -25,6 +25,7 @@
 package sun.security.ec.point;
 
 import sun.security.util.math.*;
+import jdk.internal.vm.annotation.ForceInline;
 
 /**
  * Elliptic curve point in projective coordinates (X, Y, Z) where
@@ -145,6 +146,7 @@ public abstract class ProjectivePoint
             return conditionalSet(pp, set);
         }
 
+        @ForceInline
         private <T extends IntegerModuloP>
         Mutable conditionalSet(ProjectivePoint<T> pp, int set) {
 

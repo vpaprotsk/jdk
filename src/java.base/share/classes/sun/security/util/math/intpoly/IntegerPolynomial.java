@@ -74,8 +74,8 @@ public abstract sealed class IntegerPolynomial implements IntegerFieldModuloP
     private final BigInteger modulus;
     protected final int bitsPerLimb;
     private final long[] posModLimbs;
-    private final int maxAddsMul;
-    private final int maxAddsAdd;
+    private final int maxAddsMul; // max additions before a multiplication
+    private final int maxAddsAdd; // max additions before an addition
 
     /**
      * Reduce an IntegerPolynomial representation (a) and store the result
