@@ -38,7 +38,7 @@ import sun.security.util.math.IntegerResidueMontgomeryFieldModuloP;
  * @test
  * @key randomness
  * @modules jdk.crypto.ec/sun.security.ec jdk.crypto.ec/sun.security.ec.point java.base/sun.security.util java.base/sun.security.util.math java.base/sun.security.util.math.intpoly
- * @run main/othervm/timeout=1200 -XX:+UnlockDiagnosticVMOptions  -XX:+UseIntPolyIntrinsics ECOperationsFuzzTest
+ * @run main/othervm/timeout=1200 -XX:+UnlockDiagnosticVMOptions  -XX:-UseIntPolyIntrinsics ECOperationsFuzzTest
  * @summary Unit test ECOperationsFuzzTest.
  */
 
@@ -46,7 +46,7 @@ import sun.security.util.math.IntegerResidueMontgomeryFieldModuloP;
  * @test
  * @key randomness
  * @modules jdk.crypto.ec/sun.security.ec jdk.crypto.ec/sun.security.ec.point java.base/sun.security.util java.base/sun.security.util.math java.base/sun.security.util.math.intpoly
- * @run main/othervm/timeout=1200 -XX:+UnlockDiagnosticVMOptions  -XX:+UseIntPolyIntrinsics ECOperationsFuzzTest
+ * @run main/othervm/timeout=1200 -XX:+UnlockDiagnosticVMOptions -XX:+UseIntPolyIntrinsics ECOperationsFuzzTest
  * @summary Unit test ECOperationsFuzzTest.
  */
 
@@ -56,7 +56,7 @@ public class ECOperationsFuzzTest {
         public static void main(String[] args) throws Exception {
                 //Note: it might be useful to increase this number during development
                 final int repeat = 100000;
-                test2(repeat);
+                test(repeat);
                 System.out.println("Fuzz Success");
         }
 
@@ -71,7 +71,7 @@ public class ECOperationsFuzzTest {
 
         public static void test(int repeat) throws Exception {
                 Random rnd = new Random();
-                long seed = rnd.nextLong();
+                long seed = 4156581389403250683L; //rnd.nextLong();
                 rnd.setSeed(seed);
                 int keySize = 256;
                 ECParameterSpec params = ECUtil.getECParameterSpec(null, keySize);
@@ -126,7 +126,7 @@ public class ECOperationsFuzzTest {
                                 check(nextReferencePoint, nextPoint, seed, i);
                         }
 
-                        if (rnd.nextInt(100)<10) { // Reset point to generator, test generator multiplier
+                        if (rnd.nextInt(100)<10) { // 10% Reset point to generator, test generator multiplier
                                 referencePoint = opsReference.multiply(generator, multiple);
                                 point = ops.multiply(generator, multiple);
                                 check(referencePoint, point, seed, i);

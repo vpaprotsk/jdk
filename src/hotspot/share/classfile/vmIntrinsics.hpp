@@ -525,6 +525,14 @@ class methodHandle;
   do_name(intPolyMult_name, "mult")                                                                                     \
   do_signature(intPolyMult_signature, "([J[J[J)V")                                                                      \
                                                                                                                         \
+  do_intrinsic(_intpoly_montgomeryReduce_P256, sun_security_util_math_intpoly_MontgomeryIntegerPolynomialP256, intPolyReduce_name, intPolyReduce_signature, F_R) \
+   do_name(intPolyReduce_name, "reduce")                                                                                \
+   do_signature(intPolyReduce_signature, "([J)V")                                                                       \
+                                                                                                                        \
+  do_intrinsic(_intpoly_montgomeryAssign_P256, sun_security_util_math_intpoly_MontgomeryIntegerPolynomialP256, intPolyAssign_name, intPolyAssign_signature, F_S) \
+   do_name(intPolyAssign_name, "conditionalAssign")                                                                     \
+   do_signature(intPolyAssign_signature, "(I[J[J)V")                                                                    \
+                                                                                                                        \
   /* support for java.util.Base64.Encoder*/                                                                             \
   do_class(java_util_Base64_Encoder, "java/util/Base64$Encoder")                                                        \
   do_intrinsic(_base64_encodeBlock, java_util_Base64_Encoder, encodeBlock_name, encodeBlock_signature, F_R)             \

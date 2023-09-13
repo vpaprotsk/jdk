@@ -3720,6 +3720,8 @@ void StubGenerator::generate_initial() {
 
   if (UseIntPolyIntrinsics) {
     StubRoutines::_intpoly_montgomeryMult_P256 = generate_intpoly_montgomeryMult_P256();
+    StubRoutines::_intpoly_montgomeryReduce_P256 = generate_intpoly_montgomeryReduce_P256();
+    StubRoutines::_intpoly_montgomeryAssign_P256 = generate_intpoly_montgomeryAssign_P256();
   }
 
   if (UseCRC32CIntrinsics) {

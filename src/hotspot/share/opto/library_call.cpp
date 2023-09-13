@@ -621,6 +621,10 @@ bool LibraryCallKit::try_to_inline(int predicate) {
     return inline_poly1305_processBlocks();
   case vmIntrinsics::_intpoly_montgomeryMult_P256:
     return inline_intpoly_montgomeryMult_P256();
+  case vmIntrinsics::_intpoly_montgomeryReduce_P256:
+    return inline_intpoly_montgomeryReduce_P256();
+  case vmIntrinsics::_intpoly_montgomeryAssign_P256:
+    return inline_intpoly_montgomeryAssign_P256();
   case vmIntrinsics::_encodeISOArray:
   case vmIntrinsics::_encodeByteISOArray:
     return inline_encodeISOArray(false);
@@ -7141,6 +7145,62 @@ bool LibraryCallKit::inline_intpoly_montgomeryMult_P256() {
                                  OptoRuntime::intpoly_montgomeryMult_P256_Type(),
                                  stubAddr, stubName, TypePtr::BOTTOM,
                                  a_start, b_start, r_start);
+  return true;
+}
+
+bool LibraryCallKit::inline_intpoly_montgomeryReduce_P256() {
+  address stubAddr;
+  const char *stubName;
+  assert(UseIntPolyIntrinsics, "need intpoly intrinsics support");
+  assert(callee()->signature()->size() == 1, "intpoly_montgomeryReduce_P256 has %d parameters", callee()->signature()->size());
+  stubAddr = StubRoutines::intpoly_montgomeryReduce_P256();
+  stubName = "intpoly_montgomeryReduce_P256";
+
+  if (!stubAddr) return false;
+  null_check_receiver();  // null-check receiver
+  if (stopped())  return true;
+
+  Node* a = argument(1);
+
+  a = must_be_not_null(a, true);
+
+  Node* a_start = array_element_address(a, intcon(0), T_LONG);
+  assert(a_start, "a array is NULL");
+
+  Node* call = make_runtime_call(RC_LEAF | RC_NO_FP,
+                                 OptoRuntime::intpoly_montgomeryReduce_P256_Type(),
+                                 stubAddr, stubName, TypePtr::BOTTOM,
+                                 a_start);
+  return true;
+}
+
+bool LibraryCallKit::inline_intpoly_montgomeryAssign_P256() {
+  address stubAddr;
+  const char *stubName;
+  assert(UseIntPolyIntrinsics, "need intpoly intrinsics support");
+  assert(callee()->signature()->size() == 3, "intpoly_montgomeryAssign_P256 has %d parameters", callee()->signature()->size());
+  stubAddr = StubRoutines::intpoly_montgomeryAssign_P256();
+  stubName = "intpoly_montgomeryAssign_P256";
+
+  if (!stubAddr) return false;
+  if (stopped())  return true;
+
+  Node* set = argument(0);
+  Node* a = argument(1);
+  Node* b = argument(2);
+
+  a = must_be_not_null(a, true);
+  b = must_be_not_null(b, true);
+
+  Node* a_start = array_element_address(a, intcon(0), T_LONG);
+  assert(a_start, "a array is NULL");
+  Node* b_start = array_element_address(b, intcon(0), T_LONG);
+  assert(b_start, "b array is NULL");
+
+  Node* call = make_runtime_call(RC_LEAF | RC_NO_FP,
+                                 OptoRuntime::intpoly_montgomeryAssign_P256_Type(),
+                                 stubAddr, stubName, TypePtr::BOTTOM,
+                                 set, a_start, b_start);
   return true;
 }
 

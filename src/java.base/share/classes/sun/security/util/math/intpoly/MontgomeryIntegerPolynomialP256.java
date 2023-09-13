@@ -37,7 +37,8 @@ import java.lang.Math;
 import java.math.BigInteger;
 
 import jdk.internal.vm.annotation.IntrinsicCandidate;
-
+import jdk.internal.vm.annotation.ForceInline;
+// git reset --soft 3fd046b668011432e01fcf51e4ce1690ecfd9b2d <<< back to eccp256-proto3
 public final class MontgomeryIntegerPolynomialP256 extends IntegerPolynomial implements IntegerMontgomeryFieldModuloP, IntegerResidueMontgomeryFieldModuloP { 
     private static final int BITS_PER_LIMB = 52;
     private static final int NUM_LIMBS = 5;
@@ -124,7 +125,7 @@ public final class MontgomeryIntegerPolynomialP256 extends IntegerPolynomial imp
     }
 
     private void debugRow(String prefix, long c0, long c1, long c2, long c3, long c4) {
-        if (true) {
+        if (false) {
             return;
         }
         final java.util.HexFormat hex = java.util.HexFormat.of();
@@ -159,10 +160,10 @@ public final class MontgomeryIntegerPolynomialP256 extends IntegerPolynomial imp
         for (int i = length-1; i>= 0; i--) {
             builder.append("0x" + hex.toHexDigits(c[start + i]) + " * 2^" + (i*52) + " + ");
         }
-        System.out.println(builder.toString());
+        System.err.println(builder.toString());
     }
 
-        // MM(x, y) = x * y * r
+    // MM(x, y) = x * y * r
     // X = x * r^-1
     // Y = y * r^-1
     // MM(X,Y) = x * r^-1 * y * r^-1 * r
@@ -230,13 +231,13 @@ public final class MontgomeryIntegerPolynomialP256 extends IntegerPolynomial imp
     }
 
     @Override
-    protected void square(long[] a, long[] r) {
-        mult(a, a, r);
+    protected int square(long[] a, long[] r) {
+        return mult(a, a, r);
     }
 
     // protected void multUnrolled(long[] a, long[] b, long[] r) {
     @IntrinsicCandidate
-    protected void mult(long[] a, long[] b, long[] r) {
+    protected int mult(long[] a, long[] b, long[] r) {
         long aa0 = a[0];
         long aa1 = a[1];
         long aa2 = a[2];
@@ -382,37 +383,57 @@ public final class MontgomeryIntegerPolynomialP256 extends IntegerPolynomial imp
 
         // debugRow("row 4\n", c5, c6, c7, c8, c9);
 
-        c0 = c5 - modulus[0];
-        c1 = c6 - modulus[1] + (c0 >> BITS_PER_LIMB); c0 &= LIMB_MASK;
-        c2 = c7 - modulus[2] + (c1 >> BITS_PER_LIMB); c1 &= LIMB_MASK;
-        c3 = c8 - modulus[3] + (c2 >> BITS_PER_LIMB); c2 &= LIMB_MASK;
-        c4 = c9 - modulus[4] + (c3 >> BITS_PER_LIMB); c3 &= LIMB_MASK;
+        // c0 = c5 - modulus[0];
+        // c1 = c6 - modulus[1] + (c0 >> BITS_PER_LIMB); c0 &= LIMB_MASK;
+        // c2 = c7 - modulus[2] + (c1 >> BITS_PER_LIMB); c1 &= LIMB_MASK;
+        // c3 = c8 - modulus[3] + (c2 >> BITS_PER_LIMB); c2 &= LIMB_MASK;
+        // c4 = c9 - modulus[4] + (c3 >> BITS_PER_LIMB); c3 &= LIMB_MASK;
 
-        long mask = c4 >> BITS_PER_LIMB; // Signed shift!
-        //                                                //c9 &= LIMB_MASK;
-        // debugRow("reduced\n", c0, c1, c2, c3, c4);
-        assert(mask==0 || mask==-1);
+        // long mask = c4 >> BITS_PER_LIMB; // Signed shift!
+        // //                                                //c9 &= LIMB_MASK;
+        // // debugRow("reduced\n", c0, c1, c2, c3, c4);
+        // assert(mask==0 || mask==-1);
 
-        r[0] =  ((c5 & mask) | (c0 & ~mask));
-        r[1] =  ((c6 & mask) | (c1 & ~mask));
-        r[2] =  ((c7 & mask) | (c2 & ~mask));
-        r[3] =  ((c8 & mask) | (c3 & ~mask));
-        r[4] =  ((c9 & mask) | (c4 & ~mask));
+        // r[0] =  ((c5 & mask) | (c0 & ~mask));
+        // r[1] =  ((c6 & mask) | (c1 & ~mask));
+        // r[2] =  ((c7 & mask) | (c2 & ~mask));
+        // r[3] =  ((c8 & mask) | (c3 & ~mask));
+        // r[4] =  ((c9 & mask) | (c4 & ~mask));
+
+        r[0] =  c5;
+        r[1] =  c6;
+        r[2] =  c7;
+        r[3] =  c8;
+        r[4] =  c9;
+        return 1;
     }
 
 
     @Override
     protected void reduceIn(long[] limbs, long x, int index) {
-        // this only works when BITS_PER_LIMB * NUM_LIMBS = POWER exactly
-        // long reducedValue = (x * SUBTRAHEND);
-        // limbs[index - NUM_LIMBS] += reducedValue;
+        // 2^0 position
+        limbs[0] += x;
+        // -2^96 
+        limbs[1] -= x<<44;
+        // -2^192
+        limbs[3] -= x<<36;
+        // 2^224
+        limbs[4] += x<<16;
+
+        limbs[1] += limbs[0] >> BITS_PER_LIMB;
+        limbs[2] += limbs[1] >> BITS_PER_LIMB;
+        limbs[3] += limbs[2] >> BITS_PER_LIMB;
+        limbs[4] += limbs[3] >> BITS_PER_LIMB;
+
+        limbs[0] &= LIMB_MASK;
+        limbs[1] &= LIMB_MASK;
+        limbs[2] &= LIMB_MASK;
+        limbs[3] &= LIMB_MASK;
     }
 
     @Override
     protected void finalCarryReduceLast(long[] limbs) {
-        long carry = limbs[numLimbs - 1] >> bitsPerLimb;
-        limbs[numLimbs - 1] -= carry << bitsPerLimb;
-        reduceIn(limbs, carry, numLimbs);
+        reduce(limbs);
     }
 
     @Override
@@ -430,43 +451,49 @@ public final class MontgomeryIntegerPolynomialP256 extends IntegerPolynomial imp
     //                       ==  carry * [2^256 - (2^256 -2^224 +2^192 +2^96 -1)] (mod p)
     //                       ==  carry * [2^224 -2^192 -2^96 +1] (mod p)
     @Override
+    @IntrinsicCandidate
     protected void reduce(long[] limbs) {
-        long carry = limbs[NUM_LIMBS-1]>>48; //max 16-bits
-        limbs[4] -= carry<<48;
+        long b0 = limbs[0]; 
+        long b1 = limbs[1]; 
+        long b2 = limbs[2]; 
+        long b3 = limbs[3]; 
+        long b4 = limbs[4];
+        long carry = b4>>48; //max 16-bits
+        b4 -= carry<<48;
 
         // 2^0 position
-        limbs[0] += carry;
+        b0 += carry;
         // -2^96 
-        limbs[1] -= carry<<44;
+        b1 -= carry<<44;
         // -2^192
-        limbs[3] -= carry<<36;
+        b3 -= carry<<36;
         // 2^224
-        limbs[4] += carry<<16;
+        b4 += carry<<16;
 
-        limbs[1] += limbs[0] >> BITS_PER_LIMB;
-        limbs[2] += limbs[1] >> BITS_PER_LIMB;
-        limbs[3] += limbs[2] >> BITS_PER_LIMB;
-        limbs[4] += limbs[3] >> BITS_PER_LIMB;
+        b1 += b0 >> BITS_PER_LIMB;
+        b2 += b1 >> BITS_PER_LIMB;
+        b3 += b2 >> BITS_PER_LIMB;
+        b4 += b3 >> BITS_PER_LIMB;
 
-        limbs[0] &= LIMB_MASK;
-        limbs[1] &= LIMB_MASK;
-        limbs[2] &= LIMB_MASK;
-        limbs[3] &= LIMB_MASK;
+        b0 &= LIMB_MASK;
+        b1 &= LIMB_MASK;
+        b2 &= LIMB_MASK;
+        b3 &= LIMB_MASK;
 
         long c0, c1, c2, c3, c4;
-        c0 = modulus[0] + limbs[0];
-        c1 = modulus[1] + limbs[1] + (c0 >> BITS_PER_LIMB); c0 &= LIMB_MASK;
-        c2 = modulus[2] + limbs[2] + (c1 >> BITS_PER_LIMB); c1 &= LIMB_MASK;
-        c3 = modulus[3] + limbs[3] + (c2 >> BITS_PER_LIMB); c2 &= LIMB_MASK;
-        c4 = modulus[4] + limbs[4] + (c3 >> BITS_PER_LIMB); c3 &= LIMB_MASK;
+        c0 = modulus[0] + b0;
+        c1 = modulus[1] + b1 + (c0 >> BITS_PER_LIMB); c0 &= LIMB_MASK;
+        c2 = modulus[2] + b2 + (c1 >> BITS_PER_LIMB); c1 &= LIMB_MASK;
+        c3 = modulus[3] + b3 + (c2 >> BITS_PER_LIMB); c2 &= LIMB_MASK;
+        c4 = modulus[4] + b4 + (c3 >> BITS_PER_LIMB); c3 &= LIMB_MASK;
 
-        long mask = limbs[4] >> BITS_PER_LIMB; // Signed shift!
+        long mask = b4 >> BITS_PER_LIMB; // Signed shift!
 
-        limbs[0] = (limbs[0] & ~mask) | (c0 & mask);
-        limbs[1] = (limbs[1] & ~mask) | (c1 & mask);
-        limbs[2] = (limbs[2] & ~mask) | (c2 & mask);
-        limbs[3] = (limbs[3] & ~mask) | (c3 & mask);
-        limbs[4] = (limbs[4] & ~mask) | (c4 & mask);
+        limbs[0] = (b0 & ~mask) | (c0 & mask);
+        limbs[1] = (b1 & ~mask) | (c1 & mask);
+        limbs[2] = (b2 & ~mask) | (c2 & mask);
+        limbs[3] = (b3 & ~mask) | (c3 & mask);
+        limbs[4] = (b4 & ~mask) | (c4 & mask);
     }
 
     // 0 -   0- 51
@@ -477,19 +504,32 @@ public final class MontgomeryIntegerPolynomialP256 extends IntegerPolynomial imp
 
     @Override
     protected int multByInt(long[] a, long b) {
-        if (false) {
-            long[] r = new long[NUM_LIMBS];
-            for (int i = 0; i<NUM_LIMBS; i++) {
-                r[i] = oneMont[i] * b;
-            }
-            carry(r);
-            mult(r, a, a);
-            return 0;
-        } else {
-            for (int i = 0; i < a.length; i++) {
-                a[i] *= b;
-            }
-            return (int)(b-1);
+        for (int i = 0; i < a.length; i++) {
+            a[i] *= b;
+        }
+        return (int)(b-1);
+    }
+
+    // @ForceInline
+    @IntrinsicCandidate
+    protected static void conditionalAssign(int set, long[] a, long[] b) {
+        IntegerPolynomial.conditionalAssign(set, a, b);
+    }
+
+    public void assignTest(int set, long[] a, long[] b) {
+        // checkLimbs(a);
+        // checkLimbs(b);
+        conditionalAssign(set, a, b);
+    }
+
+    public void reduceTest(long[] a) {
+        // checkLimbs(a);
+        reduce(a);
+    }
+
+    private void checkLimbs(long[] aLimbs) {
+        if (aLimbs.length != NUM_LIMBS) {
+            throw new RuntimeException("invalid limbs length: " + aLimbs.length);
         }
     }
 

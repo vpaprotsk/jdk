@@ -1325,6 +1325,42 @@ const TypeFunc* OptoRuntime::intpoly_montgomeryMult_P256_Type() {
   return TypeFunc::make(domain, range);
 }
 
+// MontgomeryIntegerPolynomialP256 modular reduction function
+const TypeFunc* OptoRuntime::intpoly_montgomeryReduce_P256_Type() {
+  int argcnt = 1;
+
+  const Type** fields = TypeTuple::fields(argcnt);
+  int argp = TypeFunc::Parms;
+  fields[argp++] = TypePtr::NOTNULL;    // limbs array
+  assert(argp == TypeFunc::Parms + argcnt, "correct decoding");
+  const TypeTuple* domain = TypeTuple::make(TypeFunc::Parms+argcnt, fields);
+
+  // result type needed
+  fields = TypeTuple::fields(1);
+  fields[TypeFunc::Parms + 0] = NULL; // void
+  const TypeTuple* range = TypeTuple::make(TypeFunc::Parms, fields);
+  return TypeFunc::make(domain, range);
+}
+
+// MontgomeryIntegerPolynomialP256 constant time assignment function
+const TypeFunc* OptoRuntime::intpoly_montgomeryAssign_P256_Type() {
+  int argcnt = 3;
+
+  const Type** fields = TypeTuple::fields(argcnt);
+  int argp = TypeFunc::Parms;
+  fields[argp++] = TypeInt::INT;        // set flag
+  fields[argp++] = TypePtr::NOTNULL;    // a array (result)
+  fields[argp++] = TypePtr::NOTNULL;    // b array (if set is set)
+  assert(argp == TypeFunc::Parms + argcnt, "correct decoding");
+  const TypeTuple* domain = TypeTuple::make(TypeFunc::Parms+argcnt, fields);
+
+  // result type needed
+  fields = TypeTuple::fields(1);
+  fields[TypeFunc::Parms + 0] = NULL; // void
+  const TypeTuple* range = TypeTuple::make(TypeFunc::Parms, fields);
+  return TypeFunc::make(domain, range);
+}
+
 //------------- Interpreter state access for on stack replacement
 const TypeFunc* OptoRuntime::osr_end_Type() {
   // create input type (domain)

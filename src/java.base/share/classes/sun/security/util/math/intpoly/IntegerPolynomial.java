@@ -102,7 +102,7 @@ public abstract sealed class IntegerPolynomial implements IntegerFieldModuloP
      * a.length == b.length == r.length == numLimbs. It is allowed for a and r
      * to be the same array.
      */
-    protected abstract void mult(long[] a, long[] b, long[] r);
+    protected abstract int mult(long[] a, long[] b, long[] r);
 
     /**
      * Multiply an IntegerPolynomial representation (a) with itself and store
@@ -110,7 +110,7 @@ public abstract sealed class IntegerPolynomial implements IntegerFieldModuloP
      * a.length == r.length == numLimbs. It is allowed for a and r
      * to be the same array.
      */
-    protected abstract void square(long[] a, long[] r);
+    protected abstract int square(long[] a, long[] r);
 
     IntegerPolynomial(int bitsPerLimb,
                       int numLimbs,
@@ -621,8 +621,8 @@ public abstract sealed class IntegerPolynomial implements IntegerFieldModuloP
             }
 
             long[] newLimbs = new long[limbs.length];
-            mult(limbs, b.limbs, newLimbs);
-            return new ImmutableElement(newLimbs, 0);
+            int numAdds = mult(limbs, b.limbs, newLimbs);
+            return new ImmutableElement(newLimbs, numAdds);
         }
 
         @Override
@@ -634,8 +634,8 @@ public abstract sealed class IntegerPolynomial implements IntegerFieldModuloP
             }
 
             long[] newLimbs = new long[limbs.length];
-            IntegerPolynomial.this.square(limbs, newLimbs);
-            return new ImmutableElement(newLimbs, 0);
+            int numAdds = IntegerPolynomial.this.square(limbs, newLimbs);
+            return new ImmutableElement(newLimbs, numAdds);
         }
 
         public void addModPowerTwo(IntegerModuloP arg, byte[] result) {
@@ -750,8 +750,7 @@ public abstract sealed class IntegerPolynomial implements IntegerFieldModuloP
                 b.numAdds = 0;
             }
 
-            mult(limbs, b.limbs, limbs);
-            numAdds = 0;
+            numAdds = mult(limbs, b.limbs, limbs);;
             return this;
         }
 
@@ -829,8 +828,7 @@ public abstract sealed class IntegerPolynomial implements IntegerFieldModuloP
                 numAdds = 0;
             }
 
-            IntegerPolynomial.this.square(limbs, limbs);
-            numAdds = 0;
+            numAdds = IntegerPolynomial.this.square(limbs, limbs);;
             return this;
         }
 

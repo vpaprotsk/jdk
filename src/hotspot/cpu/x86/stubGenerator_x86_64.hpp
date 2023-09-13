@@ -420,6 +420,8 @@ class StubGenerator: public StubCodeGenerator {
 
   address generate_intpoly_montgomeryMult_P256();
   void montgomeryMultiply(const Register aLimbs, const Register bLimbs, const Register rLimbs);
+  address generate_intpoly_montgomeryReduce_P256();
+  address generate_intpoly_montgomeryAssign_P256();
 
   // BASE64 stubs
 

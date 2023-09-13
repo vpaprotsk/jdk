@@ -79,10 +79,10 @@ public class ECOperations {
         System.out.println(prefix + y.asBigInteger().toString(16));
     }
 
-    private static final ECOperations secp256r1Ops =
-        new ECOperations(IntegerPolynomialP256.ONE.getElement(
-                CurveDB.lookup(KnownOIDs.secp256r1.value()).getCurve().getB()),
-                P256OrderField.ONE);
+    // private static final ECOperations secp256r1Ops =
+    //     new ECOperations(IntegerPolynomialP256.ONE.getElement(
+    //             CurveDB.lookup(KnownOIDs.secp256r1.value()).getCurve().getB()),
+    //             P256OrderField.ONE);
     
     // private final //DEBUG
     public ECOperations montgomeryOps;
@@ -532,7 +532,8 @@ public class ECOperations {
             if (ecOps.montgomeryOps != null) {
                 multiplier = multipliers.get(ecPoint);
             } else {
-                multiplier = multipliers.get(ecPoint);
+                multiplier = null;
+                //multiplier = multipliers.get(ecPoint);
                 // multiplier = multipliersOld.get(ecPoint);
             }
             if (multiplier == null && ecOps.montgomeryOps != null) {
@@ -553,8 +554,9 @@ public class ECOperations {
             if (ecOps.montgomeryOps != null) {
                 multiplier = multipliers.get(ecPoint);
             } else {
+                multiplier = null;
                 // multiplier = multipliersOld.get(ecPoint);
-                multiplier = multipliers.get(ecPoint);
+                //multiplier = multipliers.get(ecPoint);
             }
             if (multiplier == null && ecOps.montgomeryOps != null) {
                 // AffinePoint affPoint = AffinePoint.fromECPoint(ecPoint, ecOps.getField());
@@ -840,7 +842,7 @@ public class ECOperations {
                             if (!v.getX().asBigInteger().equals(m.getX().asBigInteger()) ||
                                 !v.getY().asBigInteger().equals(m.getY().asBigInteger())) {
                                 java.util.HexFormat hex = java.util.HexFormat.of();
-                                throw new RuntimeException("Bad multiple found at ["+d+"]["+w+"]" + hex.formatHex(s));
+                                throw new RuntimeException("Bad multiple found at ["+d+"]["+w+"]" + hex.formatHex(s) + " " + m.getX().asBigInteger());
                             }
                         }
                     }
@@ -891,6 +893,26 @@ public class ECOperations {
                 if (ECOperations.class.desiredAssertionStatus()) {
                     verifyTables(this);
                 }
+
+                // java.util.HexFormat hex = java.util.HexFormat.of();
+                // byte[] multiple = hex.parseHex("0100000000000000000000000000000000000000000000000000000000000000");
+                // // ProjectivePoint.Mutable mRef = (new DefaultMontgomery(secp256r1Ops, generator)).pointMultiply(multiple);
+                // // ProjectivePoint.Mutable m = this.pointMultiply(multiple);
+                // // System.out.println("VP>> multiple: " + hex.formatHex(multiple) + " " + mRef.getX().asBigInteger() + " " + m.getX().asBigInteger());
+
+                // ECOperations secp256r1OpsResidue = new ECOperations(IntegerPolynomialP256.ONE.getElement(
+                //     CurveDB.lookup(KnownOIDs.secp256r1.value()).getCurve().getB()),
+                //     P256OrderField.ONE);
+
+
+                // AffinePoint mRef = (new DefaultMontgomery(secp256r1Ops, generator)).pointMultiply(multiple).asAffine();
+                // AffinePoint mRef2 = (new Default(secp256r1OpsResidue, AffinePoint.fromECPoint(generator, IntegerPolynomialP256.ONE))).pointMultiply(multiple).asAffine();
+                // AffinePoint m = this.pointMultiply(multiple).asAffine();
+                // System.out.println("VP>> multiple: " + hex.formatHex(multiple) 
+                // + "\n" + mRef.getX().asBigInteger() 
+                // + "\n" + mRef2.getX().asBigInteger() 
+                // + "\n" + m.getX().asBigInteger());
+                // throw new RuntimeException();
             }
 
             @Override
