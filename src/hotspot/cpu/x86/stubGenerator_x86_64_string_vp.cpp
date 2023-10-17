@@ -1,7 +1,5 @@
-#if 1
-#define VP_INCLUDE
-#include "stubGenerator_x86_64_string_vp.cpp"
-#else
+#ifdef VP_INCLUDE
+//#if 1
 /*
  * Copyright (c) 2023, Intel Corporation. All rights reserved.
  * Intel Math Library (LIBM) Source Code
@@ -42,6 +40,184 @@
 
 #define __ _masm->
 
+//var_mov(needleChar, needleChar2, needle);
+void var_mov(Register needleChar, Register needleChar2, Register needle, int size, MacroAssembler* _masm) {
+    switch (size) {
+        case 3: __ movzbl(needleChar, Address(needle, 1)); break;
+        case 4: __ movzwl(needleChar, Address(needle, 1)); break;
+        case 5:
+        case 6: __ movl(needleChar, Address(needle, 1)); break;
+        case 7: // FIXME! off-by-two?! 8 chacacter mov.. (read 2 extra) (overoptimized?)
+        case 8: // FIXME! off-by-one?! 8 chacacter mov from inxex 1 (read 1 extra)
+        case 9:
+        case 10: __ movq(needleChar, Address(needle, 1)); break;
+        
+        case 11:
+            __ movq(needleChar, Address(needle, 1));
+            __ movzbl(needleChar2, Address(needle, 9));
+            break;
+        case 12:
+            __ movq(needleChar, Address(needle, 1));
+            __ movzwl(needleChar2, Address(needle, 9));
+            break;
+    }
+}
+
+//var_cmp_jmp(rdx, rdi, rsi, L_found, _masm); 
+void var_cmp_je(Register strCharAddr, Register bitpos, Register needleChar, Register needleChar2, Label& L_found, int size, MacroAssembler* _masm) {
+    Register tmp = needleChar2;
+    switch (size) {
+        case 3:  __ cmpb(Address(strCharAddr, bitpos, Address::times_1, 0x1), needleChar); break;
+        case 4:  __ cmpw(Address(strCharAddr, bitpos, Address::times_1, 0x1), needleChar); break;
+        case 5:
+        case 6:  __ cmpl(Address(strCharAddr, bitpos, Address::times_1, 0x1), needleChar); break;
+        case 9:  __ cmpq(Address(strCharAddr, bitpos, Address::times_1, 0x1), needleChar); break;
+        case 10: __ cmpq(Address(strCharAddr, bitpos, Address::times_1, 0x1), needleChar); break;
+        
+        case 7:
+            __ movq(tmp, Address(strCharAddr, bitpos, Address::times_1, 0x1));
+            __ xorq(tmp, needleChar);
+            __ shlq(tmp, 0x18);  // ?? clearing extra? cmpq instead?
+            break;
+        case 8:
+            __ movq(tmp, Address(strCharAddr, bitpos, Address::times_1, 0x1));
+            __ xorq(tmp, needleChar);
+            __ shlq(tmp, 0x10);   // ?? clearing extra? cmpq instead?
+            break;
+        case 11:
+            __ cmpq(Address(strCharAddr, bitpos, Address::times_1, 0x1), needleChar);
+            __ je_b(L_found);
+            __ cmpb(Address(strCharAddr, bitpos, Address::times_1, 0x9), needleChar2);
+            break;
+        case 12:
+            __ cmpq(Address(strCharAddr, bitpos, Address::times_1, 0x1), needleChar);
+            __ je_b(L_found);
+            __ cmpw(Address(strCharAddr, bitpos, Address::times_1, 0x9), needleChar2);
+            break;
+    }
+    __ je(L_found);
+}
+
+/*
+    const __m256i first = _mm256_set1_epi8(needle[0]);
+    const __m256i last  = _mm256_set1_epi8(needle[k - 1]);
+
+    for (size_t i = 0; i < n; i += 32) {
+
+        const __m256i block_first = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(s + i));
+        const __m256i block_last  = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(s + i + k - 1));
+
+        const __m256i eq_first = _mm256_cmpeq_epi8(first, block_first);
+        const __m256i eq_last  = _mm256_cmpeq_epi8(last, block_last);
+
+        uint32_t mask = _mm256_movemask_epi8(_mm256_and_si256(eq_first, eq_last));
+
+        while (mask != 0) {
+
+            const auto bitpos = bits::get_first_bit_set(mask);
+
+            if (memcmp_fun(s + i + bitpos + 1, needle + 1)) {
+                return i + bitpos;
+            }
+
+            mask = bits::clear_leftmost_set(mask);
+        }
+    }
+
+    return std::string::npos;
+*/
+    // __ movq(r12, rcx);  // rcx = len(needle)
+    // __ movq(r11, rdx);  // rdx = needle
+    // __ movq(r10, rsi);  // rsi = len(string)
+    // __ movq(rbx, rdi);  // rdi = string
+// case_avx2_strstr(rbx, r10, r11, needleLen, L_tail_3_9, rax, 
+//                       rcx, rdx, rsi, rdi, r8, _masm)
+address case_avx2_strstr(Register searchStr, Register strLen, Register needle, int needleLen, Label& breakSearch, 
+        Register tmp1, Register tmp2, Register tmp3, Register tmp4, Register tmp5, Register tmp6, 
+        MacroAssembler* _masm){
+    Label L_entry, L_outer, L_mid, L_inner, L_found;
+    Register loopIndex   = tmp1; //rax
+    Register foundAt     = tmp2; //rcx
+    Register strCharAddr = tmp3; //rdx 
+    Register needleChar  = tmp4; //rsi
+    Register bitpos      = tmp5; //rdi
+    Register needleChar2 = tmp6; //r8
+    
+    XMMRegister first = xmm0;
+    XMMRegister last  = xmm1;
+    XMMRegister eq_first = xmm2;
+    XMMRegister eq_last  = xmm3;
+
+    __ bind(L_entry);
+    address table_address = __ pc();
+
+// jmp <_Z14avx2_strstr_v2PKcmS0_m+796> L_mid6
+    __ vpbroadcastb(first, Address(needle, 0, Address::times_1), Assembler::AVX_256bit);
+    __ vpbroadcastb(last,  Address(needle, needleLen-1, Address::times_1), Assembler::AVX_256bit);
+    __ xorl(loopIndex, loopIndex); // i = 0
+    __ jmpb(L_mid);
+
+    __ align(16);
+    __ bind(L_outer);
+// jae <_Z14avx2_strstr_v2PKcmS0_m+1511> L_tail_3_9
+    __ addq(loopIndex, 0x20);   // i += 32
+    __ movq(foundAt, -1);
+    __ cmpq(loopIndex, strLen);
+    __ jae(breakSearch);  // if (i>=len(string)) break; //jccb(Assembler::aboveEqual, L) //jae vs jae_b?
+
+    __ bind(L_mid);
+// je <_Z14avx2_strstr_v2PKcmS0_m+776> L_outer6
+    __ vpcmpeqb(eq_first, first, Address(searchStr, loopIndex, Address::times_1), Assembler::AVX_256bit);
+    __ vpcmpeqb(eq_last, last, Address(searchStr, loopIndex, Address::times_1, needleLen-1), Assembler::AVX_256bit);
+    __ vpand(eq_first, eq_last, eq_first, Assembler::AVX_256bit);
+    __ vpmovmskb(foundAt, eq_first, Assembler::AVX_256bit);     // rcx = _mm256_movemask_epi8
+    __ testl(foundAt, foundAt);
+    __ je_b(L_outer);  // if (mask == 0) next; //jccb(Assembler::equal, L) // VP: really? rcx==rcx always true?
+
+    __ leaq(strCharAddr, Address(searchStr, loopIndex, Address::times_1)); // string[i]
+    var_mov(needleChar, needleChar2, needle, needleLen, _masm);
+    // __ movl(needleChar, Address(needle, 1));                               // needle[1](char1-4) char0&char5 already equal
+
+    __ align(16);
+    __ bind(L_inner);
+// je <_Z14avx2_strstr_v2PKcmS0_m+1270> L_0x404f26
+// jne <_Z14avx2_strstr_v2PKcmS0_m+832> L_inner6
+// jmp <_Z14avx2_strstr_v2PKcmS0_m+776> L_outer6
+    //__ xorl(rdi, rdi);
+    __ tzcntl(bitpos, foundAt);
+    var_cmp_je(strCharAddr, bitpos, needleChar, needleChar2, L_found, needleLen, _masm);
+    // __ cmpl(Address(strCharAddr, bitpos, Address::times_1, 0x1), needleChar);
+    // __ je(L_found);
+
+    __ blsrl(foundAt, foundAt);  // reset lowest bit set
+    __ jne_b(L_inner); // next bit in mask
+    __ jmpb(L_outer);  // next i
+
+    __ bind(L_found);
+    __ movl(foundAt, bitpos);
+// jmp <_Z14avx2_strstr_v2PKcmS0_m+1505> L_tail_10_12
+    
+    // __ jmp(L_tail_8);
+    // __ bind(L_tail_10_12);
+    // __ movl(foundAt, r8);
+    // __ bind(L_tail_8);
+    
+    __ addq(loopIndex, foundAt);
+    __ movq(foundAt, loopIndex);
+
+    return table_address;
+
+    // if (result <= n - k) {
+    //     return result;
+    // } else {
+    //     return std::string::npos;
+    // }
+    // __ bind(L_tail_3_9);
+    // __ cmpq(foundAt, r9);
+    // __ movq(rax, -1);
+    // __ cmovq(Assembler::belowEqual, rax, foundAt);
+}
+
 address StubGenerator::generate_string_indexof() {
   StubCodeMark mark(this, "StubRoutines", "stringIndexOf");
   address jmp_table[13];
@@ -69,7 +245,7 @@ address StubGenerator::generate_string_indexof() {
     Label L_outer7, L_mid7, L_inner7, L_outer8, L_mid8, L_inner8;
     Label L_outer9, L_mid9, L_inner9, L_outer10, L_mid10, L_inner10;
     Label L_outer11, L_mid11, L_inner11, L_outer12, L_mid12, L_inner12;
-Label L_inner_mid11, L_inner_mid12,L_0x404f26, L_tail_8;
+    Label L_inner_mid11, L_inner_mid12,L_0x404f26, L_tail_8;
     Label L_inner1, L_outer1;
 
     Label L_begin, L_cross_page, L_no_recursion, L_pop_exit, L_byte_by_byte;
@@ -234,466 +410,67 @@ Label L_inner_mid11, L_inner_mid12,L_0x404f26, L_tail_8;
   }
 
   { // CASE 3
-    __ bind(L_str2_len_3);
-    jmp_table[jmp_ndx++] = __ pc();
-// jmp <_Z14avx2_strstr_v2PKcmS0_m+497> L_mid3
-    __ vpbroadcastb(xmm0, Address(r11, 0, Address::times_1), Assembler::AVX_256bit);
-    __ vpbroadcastb(xmm1, Address(r11, 2, Address::times_1), Assembler::AVX_256bit);
-    __ xorl(rax, rax);
-    __ jmpb(L_mid3);
-
-    __ align(16);
-    __ bind(L_outer3);
-// jae <_Z14avx2_strstr_v2PKcmS0_m+1511> L_tail_3_9
-    __ addq(rax, 0x20);
-    __ movq(rcx, -1);
-    __ cmpq(rax, r10);
-    __ jae(L_tail_3_9);
-
-    __ bind(L_mid3);
-// je <_Z14avx2_strstr_v2PKcmS0_m+477> L_outer3
-    __ vpcmpeqb(xmm2, xmm0, Address(rbx, rax, Address::times_1), Assembler::AVX_256bit);
-    __ vpcmpeqb(xmm3, xmm1, Address(rbx, rax, Address::times_1, 0x2), Assembler::AVX_256bit);
-    __ vpand(xmm2, xmm3, xmm2, Assembler::AVX_256bit);
-    __ vpmovmskb(rcx, xmm2, Assembler::AVX_256bit);
-    __ testl(rcx, rcx);
-    __ je_b(L_outer3);
-
-    __ leaq(rdx, Address(rbx, rax, Address::times_1));
-    __ movzbl(rsi, Address(r11, 1));
-
-    __ align(16);
-    __ bind(L_inner3);
-// je <_Z14avx2_strstr_v2PKcmS0_m+1270> L_0x404f26
-// jne <_Z14avx2_strstr_v2PKcmS0_m+544> L_inner3
-// jmp <_Z14avx2_strstr_v2PKcmS0_m+477> L_outer3
-    //__ xorl(rdi, rdi);
-    __ tzcntl(rdi, rcx);
-    __ cmpb(Address(rdx, rdi, Address::times_1, 0x1), rsi);
-    __ je(L_0x404f26);
-    __ blsrl(rcx, rcx);
-    __ jne_b(L_inner3);
-    __ jmpb(L_outer3);
+    jmp_table[jmp_ndx++] = case_avx2_strstr(rbx, r10, r11, 3, L_tail_3_9, rax, 
+                      rcx, rdx, rsi, rdi, r8, _masm);
   }
 
   { // CASE 4
-    __ bind(L_str2_len_4);
-    jmp_table[jmp_ndx++] = __ pc();
-// jmp <_Z14avx2_strstr_v2PKcmS0_m+605> L_mid4
-    __ vpbroadcastb(xmm0, Address(r11, 0, Address::times_1), Assembler::AVX_256bit);
-    __ vpbroadcastb(xmm1, Address(r11, 3, Address::times_1), Assembler::AVX_256bit);
-    __ xorl(rax, rax);
-    __ jmpb(L_mid4);
-
-    __ align(16);
-    __ bind(L_outer4);
-// jae <_Z14avx2_strstr_v2PKcmS0_m+1511> L_tail_3_9
-    __ addq(rax, 0x20);
-    __ movq(rcx, -1);
-    __ cmpq(rax, r10);
-    __ jae(L_tail_3_9);
-
-    __ bind(L_mid4);
-// je <_Z14avx2_strstr_v2PKcmS0_m+585> L_outer4
-    __ vpcmpeqb(xmm2, xmm0, Address(rbx, rax, Address::times_1), Assembler::AVX_256bit);
-    __ vpcmpeqb(xmm3, xmm1, Address(rbx, rax, Address::times_1, 0x3), Assembler::AVX_256bit);
-    __ vpand(xmm2, xmm3, xmm2, Assembler::AVX_256bit);
-    __ vpmovmskb(rcx, xmm2, Assembler::AVX_256bit);
-    __ testl(rcx, rcx);
-    __ je_b(L_outer4);
-
-
-    __ leaq(rdx, Address(rbx, rax, Address::times_1));
-    __ movzwl(rsi, Address(r11, 1));
-
-    __ align(16);
-    __ bind(L_inner4);
-// je <_Z14avx2_strstr_v2PKcmS0_m+1270> L_0x404f26
-// jne <_Z14avx2_strstr_v2PKcmS0_m+640> L_inner4
-// jmp <_Z14avx2_strstr_v2PKcmS0_m+585> L_outer4
-    //__ xorl(rdi, rdi);
-    __ tzcntl(rdi, rcx);
-    __ cmpw(Address(rdx, rdi, Address::times_1, 0x1), rsi);
-    __ je(L_0x404f26);
-    __ blsrl(rcx, rcx);
-    __ jne_b(L_inner4);
-    __ jmpb(L_outer4);
+    jmp_table[jmp_ndx++] = case_avx2_strstr(rbx, r10, r11, 4, L_tail_3_9, rax, 
+                      rcx, rdx, rsi, rdi, r8, _masm);
   }
 
   { // CASE 5
-    __ bind(L_str2_len_5);
-    jmp_table[jmp_ndx++] = __ pc();
-// jmp <_Z14avx2_strstr_v2PKcmS0_m+701> L_mid5
-    __ vpbroadcastb(xmm0, Address(r11, 0, Address::times_1), Assembler::AVX_256bit);
-    __ vpbroadcastb(xmm1, Address(r11, 4, Address::times_1), Assembler::AVX_256bit);
-    __ xorl(rax, rax);
-    __ jmpb(L_mid5);
-
-    __ align(16);
-    __ bind(L_outer5);
-// jae <_Z14avx2_strstr_v2PKcmS0_m+1511> L_tail_3_9
-    __ addq(rax, 0x20);
-    __ movq(rcx, -1);
-    __ cmpq(rax, r10);
-    __ jae(L_tail_3_9);
-
-    __ bind(L_mid5);
-// je <_Z14avx2_strstr_v2PKcmS0_m+681> L_outer5
-    __ vpcmpeqb(xmm2, xmm0, Address(rbx, rax, Address::times_1), Assembler::AVX_256bit);
-    __ vpcmpeqb(xmm3, xmm1, Address(rbx, rax, Address::times_1, 0x4), Assembler::AVX_256bit);
-    __ vpand(xmm2, xmm3, xmm2, Assembler::AVX_256bit);
-    __ vpmovmskb(rcx, xmm2, Assembler::AVX_256bit);
-    __ testl(rcx, rcx);
-    __ je_b(L_outer5);
-
-    __ leaq(rdx, Address(rbx, rax, Address::times_1));
-    __ movl(rsi, Address(r11, 1));
-
-    __ align(16);
-    __ bind(L_inner5);
-// je <_Z14avx2_strstr_v2PKcmS0_m+1270> L_0x404f26
-// jne <_Z14avx2_strstr_v2PKcmS0_m+736> L_inner5
-// jmp <_Z14avx2_strstr_v2PKcmS0_m+681> L_outer5
-    //__ xorl(rdi, rdi);
-    __ tzcntl(rdi, rcx);
-    __ cmpl(Address(rdx, rdi, Address::times_1, 0x1), rsi);
-    __ je(L_0x404f26);
-    __ blsrl(rcx, rcx);
-    __ jne_b(L_inner5);
-    __ jmpb(L_outer5);
+    jmp_table[jmp_ndx++] = case_avx2_strstr(rbx, r10, r11, 5, L_tail_3_9, rax, 
+                      rcx, rdx, rsi, rdi, r8, _masm);
   }
 
   { // CASE 6
-    __ bind(L_str2_len_6);
-    jmp_table[jmp_ndx++] = __ pc();
-// jmp <_Z14avx2_strstr_v2PKcmS0_m+796> L_mid6
-    __ vpbroadcastb(xmm0, Address(r11, 0, Address::times_1), Assembler::AVX_256bit);
-    __ vpbroadcastb(xmm1, Address(r11, 5, Address::times_1), Assembler::AVX_256bit);
-    __ xorl(rax, rax);
-    __ jmpb(L_mid6);
-
-    __ align(16);
-    __ bind(L_outer6);
-// jae <_Z14avx2_strstr_v2PKcmS0_m+1511> L_tail_3_9
-    __ addq(rax, 0x20);
-    __ movq(rcx, -1);
-    __ cmpq(rax, r10);
-    __ jae(L_tail_3_9);
-
-    __ bind(L_mid6);
-// je <_Z14avx2_strstr_v2PKcmS0_m+776> L_outer6
-    __ vpcmpeqb(xmm2, xmm0, Address(rbx, rax, Address::times_1), Assembler::AVX_256bit);
-    __ vpcmpeqb(xmm3, xmm1, Address(rbx, rax, Address::times_1, 0x5), Assembler::AVX_256bit);
-    __ vpand(xmm2, xmm3, xmm2, Assembler::AVX_256bit);
-    __ vpmovmskb(rcx, xmm2, Assembler::AVX_256bit);
-    __ testl(rcx, rcx);
-    __ je_b(L_outer6);
-
-    __ leaq(rdx, Address(rbx, rax, Address::times_1));
-    __ movl(rsi, Address(r11, 1));
-
-    __ align(16);
-    __ bind(L_inner6);
-// je <_Z14avx2_strstr_v2PKcmS0_m+1270> L_0x404f26
-// jne <_Z14avx2_strstr_v2PKcmS0_m+832> L_inner6
-// jmp <_Z14avx2_strstr_v2PKcmS0_m+776> L_outer6
-    //__ xorl(rdi, rdi);
-    __ tzcntl(rdi, rcx);
-    __ cmpl(Address(rdx, rdi, Address::times_1, 0x1), rsi);
-    __ je(L_0x404f26);
-    __ blsrl(rcx, rcx);
-    __ jne_b(L_inner6);
-    __ jmpb(L_outer6);
+    jmp_table[jmp_ndx++] = case_avx2_strstr(rbx, r10, r11, 6, L_tail_3_9, rax, 
+                      rcx, rdx, rsi, rdi, r8, _masm);
   }
 
   { // CASE 7
-    __ bind(L_str2_len_7);
-    jmp_table[jmp_ndx++] = __ pc();
-// jmp <_Z14avx2_strstr_v2PKcmS0_m+892> L_mid7
-    __ vpbroadcastb(xmm0, Address(r11, 0, Address::times_1), Assembler::AVX_256bit);
-    __ vpbroadcastb(xmm1, Address(r11, 6, Address::times_1), Assembler::AVX_256bit);
-    __ xorl(rax, rax);
-    __ jmpb(L_mid7);
-
-    __ align(16);
-    __ bind(L_outer7);
-// jae <_Z14avx2_strstr_v2PKcmS0_m+1511> L_tail_3_9
-    __ addq(rax, 0x20);
-    __ movq(rcx, -1);
-    __ cmpq(rax, r10);
-    __ jae(L_tail_3_9);
-
-    __ bind(L_mid7);
-// je <_Z14avx2_strstr_v2PKcmS0_m+872> L_outer7
-    __ vpcmpeqb(xmm2, xmm0, Address(rbx, rax, Address::times_1), Assembler::AVX_256bit);
-    __ vpcmpeqb(xmm3, xmm1, Address(rbx, rax, Address::times_1, 0x6), Assembler::AVX_256bit);
-    __ vpand(xmm2, xmm3, xmm2, Assembler::AVX_256bit);
-    __ vpmovmskb(rcx, xmm2, Assembler::AVX_256bit);
-    __ testl(rcx, rcx);
-    __ je_b(L_outer7);
-
-    __ leaq(rdx, Address(rbx, rax, Address::times_1));
-    __ movq(rsi, Address(r11, 1));
-
-    __ align(16);
-    __ bind(L_inner7);
-// je <_Z14avx2_strstr_v2PKcmS0_m+1270> L_0x404f26
-// jne <_Z14avx2_strstr_v2PKcmS0_m+928> L_inner7
-// jmp <_Z14avx2_strstr_v2PKcmS0_m+872> L_outer7
-    //__ xorl(rdi, rdi);
-    __ tzcntl(rdi, rcx);
-    __ movq(r8, Address(rdx, rdi, Address::times_1, 0x1));
-    __ xorq(r8, rsi);  // VP: HUH!?
-    __ shlq(r8, 0x18);
-    __ je(L_0x404f26);
-    __ blsrl(rcx, rcx);
-    __ jne_b(L_inner7);
-    __ jmpb(L_outer7);
-
+    jmp_table[jmp_ndx++] = case_avx2_strstr(rbx, r10, r11, 7, L_tail_3_9, rax, 
+                      rcx, rdx, rsi, rdi, r8, _masm);
   }
 
   { // CASE 8
-    __ bind(L_str2_len_8);
-    jmp_table[jmp_ndx++] = __ pc();
-// jmp <_Z14avx2_strstr_v2PKcmS0_m+996> L_mid8
-    __ vpbroadcastb(xmm0, Address(r11, 0, Address::times_1), Assembler::AVX_256bit);
-    __ vpbroadcastb(xmm1, Address(r11, 7, Address::times_1), Assembler::AVX_256bit);
-    __ xorl(rax, rax);
-    __ jmpb(L_mid8);
-
-    __ align(16);
-    __ bind(L_outer8);
-// jae <_Z14avx2_strstr_v2PKcmS0_m+1511> L_tail_3_9
-    __ addq(rax, 0x20);
-    __ movq(rcx, -1);
-    __ cmpq(rax, r10);
-    __ jae(L_tail_3_9);
-
-    __ bind(L_mid8);
-// je <_Z14avx2_strstr_v2PKcmS0_m+976> L_outer8
-    __ vpcmpeqb(xmm2, xmm0, Address(rbx, rax, Address::times_1), Assembler::AVX_256bit);
-    __ vpcmpeqb(xmm3, xmm1, Address(rbx, rax, Address::times_1, 0x7), Assembler::AVX_256bit);
-    __ vpand(xmm2, xmm3, xmm2, Assembler::AVX_256bit);
-    __ vpmovmskb(rcx, xmm2, Assembler::AVX_256bit);
-    __ testl(rcx, rcx);
-    __ je_b(L_outer8);
-
-    __ leaq(rdx, Address(rbx, rax, Address::times_1));
-    __ movq(rsi, Address(r11, 1));
-
-    __ align(16);
-    __ bind(L_inner8);
-// je <_Z14avx2_strstr_v2PKcmS0_m+1270> L_0x404f26
-// jne <_Z14avx2_strstr_v2PKcmS0_m+1040> L_inner8
-// jmp <_Z14avx2_strstr_v2PKcmS0_m+976> L_outer8
-    //__ xorl(rdi, rdi);
-    __ tzcntl(rdi, rcx);
-    __ movq(r8, Address(rdx, rdi, Address::times_1, 0x1));
-    __ xorq(r8, rsi);
-    __ shlq(r8, 0x10);
-    __ je(L_0x404f26);
-    __ blsrl(rcx, rcx);
-    __ jne_b(L_inner8);
-    __ jmpb(L_outer8);
+    jmp_table[jmp_ndx++] = case_avx2_strstr(rbx, r10, r11, 8, L_tail_3_9, rax, 
+                      rcx, rdx, rsi, rdi, r8, _masm);
   }
 
   { // CASE 9
-    __ bind(L_str2_len_9);
-    jmp_table[jmp_ndx++] = __ pc();
-// jmp <_Z14avx2_strstr_v2PKcmS0_m+1108> L_mid9
-    __ vpbroadcastb(xmm0, Address(r11, 0, Address::times_1), Assembler::AVX_256bit);
-    __ vpbroadcastb(xmm1, Address(r11, 8, Address::times_1), Assembler::AVX_256bit);
-    __ xorl(rax, rax);
-    __ jmpb(L_mid9);
-
-    __ align(16);
-    __ bind(L_outer9);
-// jae <_Z14avx2_strstr_v2PKcmS0_m+1511> L_tail_3_9
-    __ addq(rax, 0x20);
-    __ movq(rcx, -1);
-    __ cmpq(rax, r10);
-    __ jae(L_tail_3_9);
-
-    __ bind(L_mid9);
-// je <_Z14avx2_strstr_v2PKcmS0_m+1088> L_outer9
-    __ vpcmpeqb(xmm2, xmm0, Address(rbx, rax, Address::times_1), Assembler::AVX_256bit);
-    __ vpcmpeqb(xmm3, xmm1, Address(rbx, rax, Address::times_1, 0x8), Assembler::AVX_256bit);
-    __ vpand(xmm2, xmm3, xmm2, Assembler::AVX_256bit);
-    __ vpmovmskb(rcx, xmm2, Assembler::AVX_256bit);
-    __ testl(rcx, rcx);
-    __ je_b(L_outer9);
-
-    __ leaq(rdx, Address(rbx, rax, Address::times_1));
-    __ movq(rsi, Address(r11, 1));
-
-    __ align(16);
-    __ bind(L_inner9);
-// je <_Z14avx2_strstr_v2PKcmS0_m+1270> L_0x404f26
-// jne <_Z14avx2_strstr_v2PKcmS0_m+1152> L_inner9
-// jmp <_Z14avx2_strstr_v2PKcmS0_m+1088> L_outer9
-    //__ xorl(rdi, rdi);
-    __ tzcntl(rdi, rcx);
-    __ cmpq(Address(rdx, rdi, Address::times_1, 0x1), rsi);
-    __ je_b(L_0x404f26);
-    __ blsrl(rcx, rcx);
-    __ jne_b(L_inner9);
-    __ jmpb(L_outer9);
+    jmp_table[jmp_ndx++] = case_avx2_strstr(rbx, r10, r11, 9, L_tail_3_9, rax, 
+                      rcx, rdx, rsi, rdi, r8, _masm);
   }
 
   { // CASE 10
-    __ bind(L_str2_len_10);
-    jmp_table[jmp_ndx++] = __ pc();
-// jmp <_Z14avx2_strstr_v2PKcmS0_m+1209> L_mid10
-    __ vpbroadcastb(xmm0, Address(r11, 0, Address::times_1), Assembler::AVX_256bit);
-    __ vpbroadcastb(xmm1, Address(r11, 9, Address::times_1), Assembler::AVX_256bit);
-    __ xorl(rax, rax);
-    __ jmpb(L_mid10);
-
-    __ align(16);
-    __ bind(L_outer10);
-// jae <_Z14avx2_strstr_v2PKcmS0_m+1511> L_tail_3_9
-    __ addq(rax, 0x20);
-    __ movq(rcx, -1);
-    __ cmpq(rax, r10);
-    __ jae(L_tail_3_9);
-
-    __ bind(L_mid10);
-// je <_Z14avx2_strstr_v2PKcmS0_m+1189> L_outer10
-    __ vpcmpeqb(xmm2, xmm0, Address(rbx, rax, Address::times_1), Assembler::AVX_256bit);
-    __ vpcmpeqb(xmm3, xmm1, Address(rbx, rax, Address::times_1, 0x9), Assembler::AVX_256bit);
-    __ vpand(xmm2, xmm3, xmm2, Assembler::AVX_256bit);
-    __ vpmovmskb(rcx, xmm2, Assembler::AVX_256bit);
-    __ testl(rcx, rcx);
-    __ je_b(L_outer10);
-
-    __ leaq(rdx, Address(rbx, rax, Address::times_1));
-    __ movq(rsi, Address(r11, 1));
-
-    __ align(16);
-    __ bind(L_inner10);
-// je <_Z14avx2_strstr_v2PKcmS0_m+1270> L_0x404f26
-// jne <_Z14avx2_strstr_v2PKcmS0_m+1248> L_inner10
-// jmp <_Z14avx2_strstr_v2PKcmS0_m+1189> L_outer10
-    //__ xorl(rdi, rdi);
-    __ tzcntl(rdi, rcx);
-    __ cmpq(Address(rdx, rdi, Address::times_1, 0x1), rsi);
-    __ je_b(L_0x404f26);
-    __ blsrl(rcx, rcx);
-    __ jne_b(L_inner10);
-    __ jmpb(L_outer10);
-
-    __ bind(L_0x404f26);
-// jmp <_Z14avx2_strstr_v2PKcmS0_m+1505> L_tail_10_12
-    __ movl(rcx, rdi);
-    __ jmp(L_tail_8);
+    jmp_table[jmp_ndx++] = case_avx2_strstr(rbx, r10, r11, 10, L_tail_3_9, rax, 
+                      rcx, rdx, rsi, rdi, r8, _masm);
   }
 
   { // CASE 11
-    __ bind(L_str2_len_11);
-    jmp_table[jmp_ndx++] = __ pc();
-// jmp <_Z14avx2_strstr_v2PKcmS0_m+1312> L_mid11
-    __ vpbroadcastb(xmm0, Address(r11, 0, Address::times_1), Assembler::AVX_256bit);
-    __ vpbroadcastb(xmm1, Address(r11, 0xa, Address::times_1), Assembler::AVX_256bit);
-    __ xorl(rax, rax);
-    __ jmpb(L_mid11);
-
-    __ align(16);
-    __ bind(L_outer11);
-// jae <_Z14avx2_strstr_v2PKcmS0_m+1511> L_tail_3_9
-    __ addq(rax, 0x20);
-    __ movq(rcx, -1);
-    __ cmpq(rax, r10);
-    __ jae(L_tail_3_9);
-
-    __ bind(L_mid11);
-// je <_Z14avx2_strstr_v2PKcmS0_m+1292> L_outer11
-    __ vpcmpeqb(xmm2, xmm0, Address(rbx, rax, Address::times_1), Assembler::AVX_256bit);
-    __ vpcmpeqb(xmm3, xmm1, Address(rbx, rax, Address::times_1, 0xa), Assembler::AVX_256bit);
-    __ vpand(xmm2, xmm3, xmm2, Assembler::AVX_256bit);
-    __ vpmovmskb(rcx, xmm2, Assembler::AVX_256bit);
-    __ testl(rcx, rcx);
-    __ je_b(L_outer11);
-
-// jmp <_Z14avx2_strstr_v2PKcmS0_m+1367> L_inner_mid11
-    __ leaq(rdx, Address(rbx, rax, Address::times_1));
-    __ movq(rsi, Address(r11, 1));
-    __ movzbl(rdi, Address(r11, 9));
-    __ jmpb(L_inner_mid11);
-
-    __ align(16);
-    __ bind(L_inner11);
-// je <_Z14avx2_strstr_v2PKcmS0_m+1292> L_outer11
-    __ blsrl(rcx, rcx);
-    __ je_b(L_outer11);
-
-    __ bind(L_inner_mid11);
-// jne <_Z14avx2_strstr_v2PKcmS0_m+1360> L_inner11
-// jne <_Z14avx2_strstr_v2PKcmS0_m+1360> L_inner11
-// jmp <_Z14avx2_strstr_v2PKcmS0_m+1502> L_tail_10_12
-    //__ xorl(r8, r8);
-    __ tzcntl(r8, rcx);
-    __ cmpq(Address(rdx, r8, Address::times_1, 0x1), rsi);
-    __ jne_b(L_inner11);
-    __ cmpb(Address(rdx, r8, Address::times_1, 0x9), rdi);
-    __ jne_b(L_inner11);
-    __ jmpb(L_tail_10_12);
+    jmp_table[jmp_ndx++] = case_avx2_strstr(rbx, r10, r11, 11, L_tail_3_9, rax, 
+                      rcx, rdx, rsi, rdi, r8, _masm);
   }
   
   { // CASE 12
-    __ bind(L_str2_len_12);
-    jmp_table[jmp_ndx++] = __ pc();
-// jmp <_Z14avx2_strstr_v2PKcmS0_m+1422> L_mid12
-    __ vpbroadcastb(xmm0, Address(r11, 0, Address::times_1), Assembler::AVX_256bit);   // first
-    __ vpbroadcastb(xmm1, Address(r11, 0xb, Address::times_1), Assembler::AVX_256bit); // last
-    __ xorl(rax, rax);
-    __ jmpb(L_mid12);
-
-    __ align(16);
-    __ bind(L_outer12);
-// jae <_Z14avx2_strstr_v2PKcmS0_m+1511> L_tail_3_9
-    __ addq(rax, 0x20);  // i += 32
-    __ movq(rcx, -1);
-    __ cmpq(rax, r10);
-    __ jae_b(L_tail_3_9); // if (i>=len(string)) break; //jccb(Assembler::aboveEqual, L)
-
-    __ bind(L_mid12);
-// je <_Z14avx2_strstr_v2PKcmS0_m+1406> L_outer12
-    __ vpcmpeqb(xmm2, xmm0, Address(rbx, rax, Address::times_1), Assembler::AVX_256bit);      // eq_first
-    __ vpcmpeqb(xmm3, xmm1, Address(rbx, rax, Address::times_1, 0xb), Assembler::AVX_256bit); // eq_last
-    __ vpand(xmm2, xmm3, xmm2, Assembler::AVX_256bit);
-    __ vpmovmskb(rcx, xmm2, Assembler::AVX_256bit);  // rcx = _mm256_movemask_epi8
-    __ testl(rcx, rcx); 
-    __ je_b(L_outer12); // if (mask == 0) next; //jccb(Assembler::equal, L) // VP: really? rcx==rcx always true?
-
-// jmp <_Z14avx2_strstr_v2PKcmS0_m+1479> L_inner_mid12
-    __ leaq(rdx, Address(rbx, rax, Address::times_1));  // string[i]
-    __ movq(rsi, Address(r11, 1));                      // needle[1](char1-8)
-    __ movzwl(rdi, Address(r11, 9));                    // needle[9](char9-10) // char0&char11 already equal
-    __ jmpb(L_inner_mid12);
-
-    __ align(16);
-    __ bind(L_inner12);
-// je <_Z14avx2_strstr_v2PKcmS0_m+1406>
-    __ blsrl(rcx, rcx); // reset lowest bit set
-    __ je_b(L_outer12); // if (mask == 0) next;
-
-    __ bind(L_inner_mid12);                           // memcmp_fun inline?
-// jne <_Z14avx2_strstr_v2PKcmS0_m+1472> L_inner12
-// jne <_Z14avx2_strstr_v2PKcmS0_m+1472> L_inner12
-    //__ xorl(r8, r8);
-    __ tzcntl(r8, rcx);  // count trailing zeroes
-    __ cmpq(Address(rdx, r8, Address::times_1, 0x1), rsi);
-    __ jne_b(L_inner12);
-    __ cmpw(Address(rdx, r8, Address::times_1, 0x9), rdi);
-    __ jne_b(L_inner12);
+    jmp_table[jmp_ndx++] = case_avx2_strstr(rbx, r10, r11, 12, L_tail_3_9, rax, 
+                      rcx, rdx, rsi, rdi, r8, _masm);
   } // CASE 12
 
-    __ bind(L_tail_10_12);
-    __ movl(rcx, r8);
-    __ bind(L_tail_8);
-    __ addq(rax, rcx);
-    __ movq(rcx, rax);
+    // __ bind(L_tail_10_12); // swapped r8, no reg-spill here
+    // __ movl(rcx, r8);
 
+    // __ bind(L_tail_8); // Moved into each helper
+    // __ addq(rax, rcx);
+    // __ movq(rcx, rax);
+
+    // if (result <= n - k) {
+    //     return result;
+    // } else {
+    //     return std::string::npos; // VP: !!! The only way this is happening, read past allowed memory!
+    // }
     __ bind(L_tail_3_9);
     __ cmpq(rcx, r9);
     __ movq(rax, -1);
@@ -769,14 +546,14 @@ Label L_inner_mid11, L_inner_mid12,L_0x404f26, L_tail_8;
     
     __ movq(rax, -1);
     __ movq(r9, rsi);
-    __ subq(r9, rcx);      // r9 = len(string)-len(needle) <- reserved for L_tail_3_9
+    __ subq(r9, rcx);
     __ jb(L_exit);         // if (len(string)<len(needle)) return -1
 
 // ja <_Z14avx2_strstr_v2PKcmS0_m+67> L_anysize
-    __ movq(r12, rcx);  // r12 = rcx = len(needle)
-    __ movq(r11, rdx);  // r11 = rdx = needle
-    __ movq(r10, rsi);  // r10 = rsi = len(string)
-    __ movq(rbx, rdi);  // rbx = rdi = string
+    __ movq(r12, rcx);  // rcx = len(needle)
+    __ movq(r11, rdx);  // rdx = needle
+    __ movq(r10, rsi);  // rsi = len(string)
+    __ movq(rbx, rdi);  // rdi = string
 
     // Check for potential page fault since we read 0x20 + needleSize
     // bytes beyond the end of the haystack.  If s[n] is within the
@@ -797,7 +574,7 @@ Label L_inner_mid11, L_inner_mid12,L_0x404f26, L_tail_8;
     __ shrq(r12, 0x3);  // Restore r12
     __ jmp(Address(rax, 0)); // CASE switch(len(needle)) (VP: neat! Could use Address(Address::times_8?)?)
 
-    __ bind(L_cross_page);
+    __ bind(L_cross_page); // VP: Alternatively, unroll last iteration? Never read any byte past strLen? i.e. for (size_t i = 0; i < n&31; i += 32) {
     //
     // Determine if any 32-byte chunks can be done
     __ movq(r14, rdi);
@@ -2547,4 +2324,4 @@ Label L_inner_mid11, L_inner_mid12,L_0x404f26, L_tail_8;
 }
 
 #undef __
-#endif //if 1
+#endif

@@ -1,0 +1,52 @@
+
+  { // CASE 11
+    __ bind(L_str2_len_11);
+    jmp_table[jmp_ndx++] = __ pc();
+// jmp <_Z14avx2_strstr_v2PKcmS0_m+1312> L_mid11
+    __ vpbroadcastb(xmm0, Address(r11, 0, Address::times_1), Assembler::AVX_256bit);
+    __ vpbroadcastb(xmm1, Address(r11, 0xa, Address::times_1), Assembler::AVX_256bit);
+    __ xorl(rax, rax);
+    __ jmpb(L_mid11);
+
+    __ align(16);
+    __ bind(L_outer11);
+// jae <_Z14avx2_strstr_v2PKcmS0_m+1511> L_tail_3_9
+    __ addq(rax, 0x20);
+    __ movq(rcx, -1);
+    __ cmpq(rax, r10);
+    __ jae(L_tail_3_9);
+
+    __ bind(L_mid11);
+// je <_Z14avx2_strstr_v2PKcmS0_m+1292> L_outer11
+    __ vpcmpeqb(xmm2, xmm0, Address(rbx, rax, Address::times_1), Assembler::AVX_256bit);
+    __ vpcmpeqb(xmm3, xmm1, Address(rbx, rax, Address::times_1, 0xa), Assembler::AVX_256bit);
+    __ vpand(xmm2, xmm3, xmm2, Assembler::AVX_256bit);
+    __ vpmovmskb(rcx, xmm2, Assembler::AVX_256bit);
+    __ testl(rcx, rcx);
+    __ je_b(L_outer11);
+
+// jmp <_Z14avx2_strstr_v2PKcmS0_m+1367> L_inner_mid11
+    __ leaq(rdx, Address(rbx, rax, Address::times_1));
+    __ movq(rsi, Address(r11, 1));
+    __ movzbl(rdi, Address(r11, 9));
+    __ jmpb(L_inner_mid11);
+
+    __ align(16);
+    __ bind(L_inner11);
+// je <_Z14avx2_strstr_v2PKcmS0_m+1292> L_outer11
+    __ blsrl(rcx, rcx);
+    __ je_b(L_outer11);
+
+    __ bind(L_inner_mid11);
+// jne <_Z14avx2_strstr_v2PKcmS0_m+1360> L_inner11
+// jne <_Z14avx2_strstr_v2PKcmS0_m+1360> L_inner11
+// jmp <_Z14avx2_strstr_v2PKcmS0_m+1502> L_tail_10_12
+    //__ xorl(r8, r8);
+    __ tzcntl(r8, rcx);
+    __ cmpq(Address(rdx, r8, Address::times_1, 0x1), rsi);
+    __ jne_b(L_inner11);
+    __ cmpb(Address(rdx, r8, Address::times_1, 0x9), rdi);
+    __ jne_b(L_inner11);
+    __ jmpb(L_tail_10_12);
+  }
+  

@@ -38,9 +38,51 @@ public class IndexOf {
         simpleTest();
         compareIndexOfLastIndexOf();
         compareStringStringBuffer();
+        testSIMDIndexOf();
 
         if (failure)
            throw new RuntimeException("One or more BitSet failures.");
+    }
+
+    private static void testSIMDIndexOf() {
+        int failCount = 0;
+        for (int needleSize = 3; needleSize< 20; needleSize++) {
+            String needle = "abcdefghijklmnopqrstuvwxyz".substring(0, needleSize);
+            char first = needle.charAt(0);
+            char last = needle.charAt(needle.length()-1);
+            int testStringLength = needleSize*50;
+            
+            // Create misleadingString, with as many false positives as possible for the SIMD algorithm
+            StringBuffer misleadingString = new StringBuffer(testStringLength);
+            int needlePlace = getRandomIndex(0, testStringLength-needleSize);
+            for (int pos = 0; pos<testStringLength; ) {
+                for (int i = 0; i < needleSize-1 && pos != needlePlace; i++, pos++) {
+                    misleadingString.append(first);
+                }
+                for (int i = 0; i < needleSize-1 && pos != needlePlace; i++, pos++) {
+                    misleadingString.append(last);
+                }
+                if (pos == needlePlace) {
+                    misleadingString.append(needle);
+                    pos += needleSize;
+                }
+            }
+
+            int testPlace = misleadingString.toString().indexOf(needle, 0);
+            if (needlePlace != testPlace) {
+                System.err.println("Expected to find needle at "+needlePlace+" but found "+ needle + " at "+ testPlace);
+                System.err.println("Maliciouis string: "+misleadingString);
+                failCount++;
+            }
+
+            testPlace = misleadingString.toString().indexOf(needle, needlePlace+1);
+            if (-1 != testPlace) {
+                System.err.println("Expected to NOT find needle (start one-past) but found "+ needle + " at "+ testPlace);
+                System.err.println("Maliciouis string: "+misleadingString);
+                failCount++;
+            }
+        }
+        report("testSIMDIndexOf", failCount);
     }
 
     private static void report(String testName, int failCount) {
@@ -157,10 +199,10 @@ public class IndexOf {
             int sbAnswer = testBuffer.indexOf(fragment);
 
             if (sAnswer != sbAnswer) {
-		System.err.println("IndexOf fragment '" + fragment + "' (" + fragment.length() + ") len String = " + testString.length() + " len Buffer = " + testBuffer.length());
-		System.err.println("  sAnswer = " + sAnswer + ", sbAnswer = " + sbAnswer);
+                System.err.println("IndexOf fragment '" + fragment + "' (" + fragment.length() + ") len String = " + testString.length() + " len Buffer = " + testBuffer.length());
+                System.err.println("  sAnswer = " + sAnswer + ", sbAnswer = " + sbAnswer);
                 failCount++;
-	    }
+            }
 
             int testIndex = getRandomIndex(-100, 100);
 
@@ -168,17 +210,17 @@ public class IndexOf {
             sbAnswer = testBuffer.indexOf(fragment, testIndex);
 
             if (sAnswer != sbAnswer) {
-		System.err.println("IndexOf fragment '" + fragment + "' index = " + testIndex + " len String = " + testString.length() + " len Buffer = " + testBuffer.length());
+                System.err.println("IndexOf fragment '" + fragment + "' index = " + testIndex + " len String = " + testString.length() + " len Buffer = " + testBuffer.length());
                 failCount++;
-	    }
+            }
 
             sAnswer = testString.lastIndexOf(fragment);
             sbAnswer = testBuffer.lastIndexOf(fragment);
 
             if (sAnswer != sbAnswer) {
-		System.err.println("lastIndexOf fragment '" + fragment + "' len String = " + testString.length() + " len Buffer = " + testBuffer.length());
+                System.err.println("lastIndexOf fragment '" + fragment + "' len String = " + testString.length() + " len Buffer = " + testBuffer.length());
                 failCount++;
-	    }
+            }
 
             testIndex = getRandomIndex(-100, 100);
 
@@ -186,9 +228,9 @@ public class IndexOf {
             sbAnswer = testBuffer.lastIndexOf(fragment, testIndex);
 
             if (sAnswer != sbAnswer) {
-		System.err.println("lastIndexOf fragment '" + fragment + "' index = " + testIndex + " len String = " + testString.length() + " len Buffer = " + testBuffer.length());
+                System.err.println("lastIndexOf fragment '" + fragment + "' index = " + testIndex + " len String = " + testString.length() + " len Buffer = " + testBuffer.length());
                 failCount++;
-	    }
+            }
         }
 
         report("String vs StringBuffer       ", failCount);

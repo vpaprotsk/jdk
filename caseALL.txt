@@ -1,0 +1,208 @@
+//var_mov(rsi, r8, needle);
+void var_mov(Register rsi, Register r8, Register needle, int size, MacroAssembler* _masm) {
+    switch (size) {
+        case 3:
+            __ movzbl(rsi, Address(r11, 1));
+            break;
+        case 4:
+            __ movzwl(rsi, Address(r11, 1));
+            break;
+        case 5:
+        case 6:
+            __ movl(rsi, Address(needle, 1));
+            break;
+        case 7:
+            __ movq(rsi, Address(r11, 1));  // off-by-two?! 8 chacacter mov.. (read 2 extra)
+            break;
+        case 8:
+            __ movq(rsi, Address(r11, 1));  // off-by-one?! 8 chacacter mov from inxex 1 (read 1 extra)
+            break;
+        case 9:
+            __ movq(rsi, Address(r11, 1));
+            break;
+        case 10:
+            __ movq(rsi, Address(r11, 1));
+            break;
+        case 11:
+            // __ movq(rsi, Address(r11, 1));
+            // __ movzbl(rdi, Address(r11, 9)); //-> r8
+            __ movq(rsi, Address(r11, 1));
+            __ movzbl(needleChar2, Address(r11, 9));
+            break;
+        case 12:
+            __ movq(rsi, Address(r11, 1));
+            __ movzwl(rdi, Address(r11, 9));
+            break;
+    }
+}
+
+//var_cmp_jmp(rdx, rdi, rsi, L_found, _masm); 
+void var_cmp_je(Register rdx, Register rdi, Register rsi, Register r8, Label L_found, int size, MacroAssembler* _masm) {
+    switch (size) {
+        case 3:
+            __ cmpb(Address(rdx, rdi, Address::times_1, 0x1), rsi);
+            __ je(L_0x404f26);
+            break;
+        case 4:
+            __ cmpw(Address(rdx, rdi, Address::times_1, 0x1), rsi);
+            __ je(L_0x404f26);
+            break;
+        case 5:
+        case 6:
+            __ cmpl(Address(rdx, rdi, Address::times_1, 0x1), rsi);
+            __ je(L_found);
+            break;
+        case 7:
+            __ movq(r8, Address(rdx, rdi, Address::times_1, 0x1));
+            __ xorq(r8, rsi);
+            __ shlq(r8, 0x18);
+            __ je(L_0x404f26);
+            break;
+        case 8:
+            __ movq(r8, Address(rdx, rdi, Address::times_1, 0x1));
+            __ xorq(r8, rsi);
+            __ shlq(r8, 0x10);
+            __ je(L_0x404f26);
+            break;
+        case 9:
+            __ cmpq(Address(rdx, rdi, Address::times_1, 0x1), rsi);
+            __ je_b(L_0x404f26);
+            break;
+        case 10:
+            __ cmpq(Address(rdx, rdi, Address::times_1, 0x1), rsi);
+            __ je_b(L_0x404f26);
+            break;
+        case 11:
+            __ cmpq(Address(rdx, rdi, Address::times_1, 0x1), rsi);
+            __ je_b(L_0x404f26);
+            __ cmpb(Address(rdx, rdi, Address::times_1, 0x9), needleChar2);
+            __ je_b(L_0x404f26);
+            break;
+        case 12:
+            __ cmpq(Address(rdx, rdi, Address::times_1, 0x1), rsi);
+            __ je_b(L_0x404f26);
+            __ cmpw(Address(rdx, rdi, Address::times_1, 0x9), needleChar2);
+            __ je_b(L_0x404f26);
+            break;
+    }
+}
+
+/*
+    const __m256i first = _mm256_set1_epi8(needle[0]);
+    const __m256i last  = _mm256_set1_epi8(needle[k - 1]);
+
+    for (size_t i = 0; i < n; i += 32) {
+
+        const __m256i block_first = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(s + i));
+        const __m256i block_last  = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(s + i + k - 1));
+
+        const __m256i eq_first = _mm256_cmpeq_epi8(first, block_first);
+        const __m256i eq_last  = _mm256_cmpeq_epi8(last, block_last);
+
+        uint32_t mask = _mm256_movemask_epi8(_mm256_and_si256(eq_first, eq_last));
+
+        while (mask != 0) {
+
+            const auto rdi = bits::get_first_bit_set(mask);
+
+            if (memcmp_fun(s + i + rdi + 1, needle + 1)) {
+                return i + rdi;
+            }
+
+            mask = bits::clear_leftmost_set(mask);
+        }
+    }
+
+    return std::string::npos;
+*/
+    // __ movq(r12, rcx);  // rcx = len(needle)
+    // __ movq(r11, rdx);  // rdx = needle
+    // __ movq(r10, rsi);  // rsi = len(string)
+    // __ movq(rbx, rdi);  // rdi = string
+// case_avx2_strstr(rbx, r10, r11, needleLen, L_tail_3_9, _masm)
+address case_avx2_strstr(Register searchStr, Register strLen, Register needle, int needleLen, Label breakSearch, MacroAssembler* _masm){
+    Label L_entry, L_outer, L_mid, L_inner, L_found; //L_found==L_0x404f26
+    Register loopIndex   = rax; // tmp1
+    Register foundAt     = rcx; // tmp2
+    Register strCharAddr = rdx; // tmp3
+    Register needleChar  = rsi; // tmp4
+    Register bitpos      = rdi; // tmp5
+    Register needleChar2  = r8;  // tmp6
+    
+    XMMRegister first = xmm0;
+    XMMRegister last  = xmm1;
+    XMMRegister eq_first = xmm2;
+    XMMRegister eq_last  = xmm3;
+
+    __ bind(L_entry);
+    address table_address = __ pc();
+
+    // VP?: __ align not used for every bind
+    // VP?: j(ump)_b vs jumb not used consistently
+
+// jmp <_Z14avx2_strstr_v2PKcmS0_m+796> L_mid6
+    __ vpbroadcastb(xmm0, Address(r11, 0, Address::times_1), Assembler::AVX_256bit);
+    __ vpbroadcastb(xmm1, Address(r11, needleLen-1, Address::times_1), Assembler::AVX_256bit);
+    __ xorl(rax, rax);
+    __ jmpb(L_mid12);
+
+    __ align(16);
+    __ bind(L_outer12);
+// jae <_Z14avx2_strstr_v2PKcmS0_m+1511> L_tail_3_9
+    __ addq(rax, 0x20);
+    __ movq(rcx, -1);
+    __ cmpq(rax, r10);
+    __ jae(L_tail_3_9);
+
+    __ bind(L_mid12);
+// je <_Z14avx2_strstr_v2PKcmS0_m+776> L_outer6
+    __ vpcmpeqb(xmm2, xmm0, Address(rbx, rax, Address::times_1), Assembler::AVX_256bit);
+    __ vpcmpeqb(xmm3, xmm1, Address(rbx, rax, Address::times_1, needleLen-1), Assembler::AVX_256bit);
+    __ vpand(xmm2, xmm3, xmm2, Assembler::AVX_256bit);
+    __ vpmovmskb(rcx, xmm2, Assembler::AVX_256bit);
+    __ testl(rcx, rcx);
+    __ je_b(L_outer12);
+
+    __ leaq(rdx, Address(rbx, rax, Address::times_1));
+    // var_mov(rsi, r8, r11);
+    __ movl(rsi, Address(r11, 1));
+
+    __ align(16);
+    __ bind(L_inner12);
+// je <_Z14avx2_strstr_v2PKcmS0_m+1270> L_0x404f26
+// jne <_Z14avx2_strstr_v2PKcmS0_m+832> L_inner6
+// jmp <_Z14avx2_strstr_v2PKcmS0_m+776> L_outer6
+    //__ xorl(rdi, rdi);
+    __ tzcntl(rdi, rcx);
+    // var_cmp_jmp(rdx, rdi, rsi, r8, L_0x404f26, needleLen, _masm);
+    __ cmpl(Address(rdx, rdi, Address::times_1, 0x1), rsi);
+    __ je(L_0x404f26);
+    __ blsrl(rcx, rcx);
+    __ jne_b(L_inner12);
+    __ jmpb(L_outer12);
+
+
+    __ bind(L_0x404f26);
+    __ movl(rcx, rdi);
+// jmp <_Z14avx2_strstr_v2PKcmS0_m+1505> L_tail_10_12
+    __ jmp(L_tail_8);
+    
+    // __ bind(L_tail_10_12);
+    // __ movl(rcx, r8);
+    // __ bind(L_tail_8);
+    
+    __ addq(rax, rcx);
+    __ movq(rcx, rax);
+
+    return table_address;
+
+    // if (result <= n - k) {
+    //     return result;
+    // } else {
+    //     return std::string::npos;
+    // }
+    // __ bind(L_tail_3_9);
+    // __ cmpq(rcx, r9);
+    // __ movq(rax, -1);
+    // __ cmovq(Assembler::belowEqual, rax, rcx);
+}
