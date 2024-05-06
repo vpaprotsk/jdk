@@ -4207,6 +4207,10 @@ void StubGenerator::generate_compiler_stubs() {
     StubRoutines::_poly1305_processBlocks = generate_poly1305_processBlocks();
   }
 
+  StubRoutines::_string_indexof2LL = generate_string_indexOf2I(StrIntrinsicNode::LL);
+  StubRoutines::_string_indexof2UU = generate_string_indexOf2I(StrIntrinsicNode::UU);
+  StubRoutines::_string_indexof2UL = generate_string_indexOf2I(StrIntrinsicNode::UL);
+
   if (UseMD5Intrinsics) {
     StubRoutines::_md5_implCompress = generate_md5_implCompress(false, "md5_implCompress");
     StubRoutines::_md5_implCompressMB = generate_md5_implCompress(true, "md5_implCompressMB");

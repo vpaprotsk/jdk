@@ -187,6 +187,8 @@ class LibraryCallKit : public GraphKit {
   bool inline_string_compareTo(StrIntrinsicNode::ArgEnc ae);
   bool inline_string_indexOf(StrIntrinsicNode::ArgEnc ae);
   bool inline_string_indexOfI(StrIntrinsicNode::ArgEnc ae);
+  // bool inline_string_indexOf2(StrIntrinsicNode::ArgEnc ae);
+  bool inline_string_indexOf2I(StrIntrinsicNode::ArgEnc ae);
   Node* make_indexOf_node(Node* src_start, Node* src_count, Node* tgt_start, Node* tgt_count,
                           RegionNode* region, Node* phi, StrIntrinsicNode::ArgEnc ae);
   bool inline_string_indexOfChar(StrIntrinsicNode::ArgEnc ae);

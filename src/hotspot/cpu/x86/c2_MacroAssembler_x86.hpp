@@ -271,6 +271,12 @@ public:
                       int int_cnt2,  Register result,
                       XMMRegister vec, Register tmp,
                       int ae);
+  
+  virtual void string_indexof_avx(Register haystack, Register needle,
+                      Register haystack_len, Register needle_len,
+                      int haystack_len2, int needle_len2, Register result,
+                      XMMRegister xtmp1, XMMRegister xtmp2, XMMRegister xtmp3, XMMRegister xtmp4, 
+                      Register tmp1, Register tmp2, Register tmp3, Register tmp4, int ae);
 
     // Smallest code: we don't need to load through stack,
     // check string tail.

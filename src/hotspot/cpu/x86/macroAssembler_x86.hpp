@@ -1263,6 +1263,14 @@ public:
     Assembler::pclmulqdq(dst, src, 0x11);
   }
 
+  // FIXME: so can be called from stub generator..
+  virtual 
+  void string_indexof_avx(Register haystack, Register needle,
+                      Register haystack_len, Register needle_len,
+                      int haystack_len2, int needle_len2, Register result,
+                      XMMRegister xtmp1, XMMRegister xtmp2, XMMRegister xtmp3, XMMRegister xtmp4, 
+                      Register tmp1, Register tmp2, Register tmp3, Register tmp4, int ae){}
+
   void pcmpeqb(XMMRegister dst, XMMRegister src);
   void pcmpeqw(XMMRegister dst, XMMRegister src);
 
@@ -1348,8 +1356,10 @@ public:
   using Assembler::vpbroadcastq;
   void vpbroadcastq(XMMRegister dst, AddressLiteral src, int vector_len, Register rscratch = noreg);
 
+  using Assembler::vpcmpeqb;
   void vpcmpeqb(XMMRegister dst, XMMRegister nds, XMMRegister src, int vector_len);
 
+  using Assembler::vpcmpeqw;
   void vpcmpeqw(XMMRegister dst, XMMRegister nds, XMMRegister src, int vector_len);
   void evpcmpeqd(KRegister kdst, KRegister mask, XMMRegister nds, AddressLiteral src, int vector_len, Register rscratch = noreg);
 

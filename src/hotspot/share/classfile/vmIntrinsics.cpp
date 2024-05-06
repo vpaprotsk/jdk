@@ -506,6 +506,15 @@ bool vmIntrinsics::disabled_by_jvm_flags(vmIntrinsics::ID id) {
   case vmIntrinsics::_copyMemory:
     if (!InlineArrayCopy || !InlineUnsafeOps) return true;
     break;
+  // case vmIntrinsics::_indexOf2L:
+  // case vmIntrinsics::_indexOf2U:
+  // case vmIntrinsics::_indexOf2UL:
+  case vmIntrinsics::_indexOf2IL:
+  case vmIntrinsics::_indexOf2IU:
+  case vmIntrinsics::_indexOf2IUL:
+  // case vmIntrinsics::_indexOf2U_char:
+  // case vmIntrinsics::_indexOf2L_char:
+    break;
 #ifdef COMPILER2
   case vmIntrinsics::_clone:
   case vmIntrinsics::_copyOf:

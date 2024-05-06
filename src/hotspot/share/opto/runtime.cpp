@@ -1378,6 +1378,26 @@ const TypeFunc* OptoRuntime::poly1305_processBlocks_Type() {
   return TypeFunc::make(domain, range);
 }
 
+const TypeFunc* OptoRuntime::string_indexOf2_Type() {
+  int argcnt = 5;
+
+  const Type** fields = TypeTuple::fields(argcnt);
+  int argp = TypeFunc::Parms;
+  fields[argp++] = TypeInt::INT;        // char offset
+  fields[argp++] = TypeInt::INT;        // char count
+  fields[argp++] = TypeInt::INT;        // char count
+  fields[argp++] = TypePtr::NOTNULL;    // byte[]
+  fields[argp++] = TypePtr::NOTNULL;    // byte[]
+  assert(argp == TypeFunc::Parms + argcnt, "correct decoding");
+  const TypeTuple* domain = TypeTuple::make(TypeFunc::Parms+argcnt, fields);
+
+  // result type needed
+  fields = TypeTuple::fields(1);
+  fields[TypeFunc::Parms + 0] = TypeInt::INT; // result
+  const TypeTuple* range = TypeTuple::make(TypeFunc::Parms + 1, fields);
+  return TypeFunc::make(domain, range);
+}
+
 //------------- Interpreter state access for on stack replacement
 const TypeFunc* OptoRuntime::osr_end_Type() {
   // create input type (domain)

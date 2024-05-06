@@ -1123,6 +1123,7 @@ private:
   void cmpq(Register dst, Address src);
 
   void cmpw(Address dst, int imm16);
+  void cmpw(Address dst, Register reg);
 
   void cmpxchg8 (Address adr);
 
@@ -1800,6 +1801,7 @@ private:
   void vpcmpCCbwd(XMMRegister dst, XMMRegister nds, XMMRegister src, int cond_encoding, int vector_len);
 
   void vpcmpeqb(XMMRegister dst, XMMRegister nds, XMMRegister src, int vector_len);
+  void vpcmpeqb(XMMRegister dst, XMMRegister src1, Address src2, int vector_len);
   void evpcmpeqb(KRegister kdst, XMMRegister nds, XMMRegister src, int vector_len);
   void evpcmpeqb(KRegister kdst, XMMRegister nds, Address src, int vector_len);
   void evpcmpeqb(KRegister kdst, KRegister mask, XMMRegister nds, Address src, int vector_len);
@@ -1815,8 +1817,10 @@ private:
 
   void pcmpeqw(XMMRegister dst, XMMRegister src);
   void vpcmpeqw(XMMRegister dst, XMMRegister nds, XMMRegister src, int vector_len);
+  void vpcmpeqw(XMMRegister dst, XMMRegister nds, Address src, int vector_len);
   void evpcmpeqw(KRegister kdst, XMMRegister nds, XMMRegister src, int vector_len);
   void evpcmpeqw(KRegister kdst, XMMRegister nds, Address src, int vector_len);
+  void evpcmpeqw(KRegister kdst, KRegister mask, XMMRegister nds, Address src, int vector_len);
 
   void vpcmpgtw(XMMRegister dst, XMMRegister nds, XMMRegister src, int vector_len);
 

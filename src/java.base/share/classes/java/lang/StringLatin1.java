@@ -363,6 +363,60 @@ final class StringLatin1 {
         return -1;
     }
 
+    public static int indexOf2(byte[] value, int ch, int fromIndex, int toIndex) {
+        if (!canEncode(ch)) {
+            return -1;
+        }
+        return indexOfChar(value, ch, fromIndex, toIndex);
+    }
+
+    @IntrinsicCandidate
+    private static int indexOfChar2(byte[] value, int ch, int fromIndex, int max) {
+        byte c = (byte)ch;
+        for (int i = fromIndex; i < max; i++) {
+            if (value[i] == c) {
+               return i;
+            }
+        }
+        return -1;
+    }
+
+    @IntrinsicCandidate
+    public static int indexOf2(byte[] value, byte[] str) {
+        if (str.length == 0) {
+            return 0;
+        }
+        if (value.length == 0) {
+            return -1;
+        }
+        return indexOf2(value, value.length, str, str.length, 0);
+    }
+
+    @IntrinsicCandidate
+    public static int indexOf2(byte[] value, int valueCount, byte[] str, int strCount, int fromIndex) {
+        // System.out.println("VP was here! Stub not called!>>>>>");
+        //if (true) {throw new RuntimeException("VP was here! Stub not called!>>>>>");}
+        byte first = str[0];
+        int max = (valueCount - strCount);
+        for (int i = fromIndex; i <= max; i++) {
+            // Look for first character.
+            if (value[i] != first) {
+                while (++i <= max && value[i] != first);
+            }
+            // Found first character, now look at the rest of value
+            if (i <= max) {
+                int j = i + 1;
+                int end = j + strCount - 1;
+                for (int k = 1; j < end && value[j] == str[k]; j++, k++);
+                if (j == end) {
+                    // Found whole string.
+                    return i;
+                }
+            }
+        }
+        return -1;
+    }
+
     public static int lastIndexOf(byte[] src, int srcCount,
                                   byte[] tgt, int tgtCount, int fromIndex) {
         int min = tgtCount - 1;

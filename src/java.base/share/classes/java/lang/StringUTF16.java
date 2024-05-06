@@ -621,6 +621,33 @@ final class StringUTF16 {
         return indexOfUnsafe(value, valueCount, str, strCount, fromIndex);
     }
 
+    public static int indexOf2(byte[] value, int ch, int fromIndex, int toIndex) {
+        if (ch < Character.MIN_SUPPLEMENTARY_CODE_POINT) {
+            // handle most cases here (ch is a BMP code point or a
+            // negative value (invalid code point))
+            return indexOfChar(value, ch, fromIndex, toIndex);
+        } else {
+            return indexOfSupplementary(value, ch, fromIndex, toIndex);
+        }
+    }
+
+    @IntrinsicCandidate
+    public static int indexOf2(byte[] value, byte[] str) {
+        if (str.length == 0) {
+            return 0;
+        }
+        if (value.length < str.length) {
+            return -1;
+        }
+        return indexOfUnsafe(value, length(value), str, length(str), 0);
+    }
+
+    @IntrinsicCandidate
+    public static int indexOf2(byte[] value, int valueCount, byte[] str, int strCount, int fromIndex) {
+        checkBoundsBeginEnd(fromIndex, valueCount, value);
+        checkBoundsBeginEnd(0, strCount, str);
+        return indexOfUnsafe(value, valueCount, str, strCount, fromIndex);
+    }
 
     private static int indexOfUnsafe(byte[] value, int valueCount, byte[] str, int strCount, int fromIndex) {
         assert fromIndex >= 0;
@@ -670,6 +697,25 @@ final class StringUTF16 {
         return indexOfLatin1Unsafe(src, srcCount, tgt, tgtCount, fromIndex);
     }
 
+    @IntrinsicCandidate
+    public static int indexOfLatin12(byte[] value, byte[] str) {
+        if (str.length == 0) {
+            return 0;
+        }
+        if (length(value) < str.length) {
+            return -1;
+        }
+        return indexOfLatin1Unsafe(value, length(value), str, str.length, 0);
+    }
+
+    @IntrinsicCandidate
+    public static int indexOfLatin12(byte[] src, int srcCount, byte[] tgt, int tgtCount, int fromIndex) {
+        //System.err.println("VP should not be here UL");
+        checkBoundsBeginEnd(fromIndex, srcCount, src);
+        String.checkBoundsBeginEnd(0, tgtCount, tgt.length);
+        return indexOfLatin1Unsafe(src, srcCount, tgt, tgtCount, fromIndex);
+    }
+
     public static int indexOfLatin1Unsafe(byte[] src, int srcCount, byte[] tgt, int tgtCount, int fromIndex) {
         assert fromIndex >= 0;
         assert tgtCount > 0;
@@ -707,6 +753,17 @@ final class StringUTF16 {
         }
         return -1;
     }
+
+    @IntrinsicCandidate
+    private static int indexOfChar2(byte[] value, int ch, int fromIndex, int max) {
+        for (int i = fromIndex; i < max; i++) {
+            if (getChar(value, i) == ch) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
 
     /**
      * Handles (rare) calls of indexOf with a supplementary character.
