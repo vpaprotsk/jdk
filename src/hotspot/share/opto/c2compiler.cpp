@@ -635,6 +635,14 @@ bool C2Compiler::is_intrinsic_supported(vmIntrinsics::ID id) {
   case vmIntrinsics::_indexOfIUL:
   case vmIntrinsics::_indexOfU_char:
   case vmIntrinsics::_indexOfL_char:
+  // case vmIntrinsics::_indexOf2L:
+  // case vmIntrinsics::_indexOf2U:
+  // case vmIntrinsics::_indexOf2UL:
+  case vmIntrinsics::_indexOf2IL:
+  case vmIntrinsics::_indexOf2IU:
+  case vmIntrinsics::_indexOf2IUL:
+  // case vmIntrinsics::_indexOf2U_char:
+  // case vmIntrinsics::_indexOf2L_char:
   case vmIntrinsics::_toBytesStringU:
   case vmIntrinsics::_getCharsStringU:
   case vmIntrinsics::_getCharStringU:

@@ -1803,6 +1803,14 @@ void Assembler::cmpw(Address dst, int imm16) {
   emit_int16(imm16);
 }
 
+void Assembler::cmpw(Address dst, Register reg) {
+  InstructionMark im(this);
+  emit_int8(0x66);
+  prefix(dst, reg);
+  emit_int8((unsigned char)0x39);
+  emit_operand(reg, dst, 1);
+}
+
 // The 32-bit cmpxchg compares the value at adr with the contents of rax,
 // and stores reg into adr if so; otherwise, the value at adr is loaded into rax,.
 // The ZF is set if the compared values were equal, and cleared otherwise.
@@ -4424,6 +4432,15 @@ void Assembler::vpcmpeqb(XMMRegister dst, XMMRegister nds, XMMRegister src, int 
   emit_int16(0x74, (0xC0 | encode));
 }
 
+void Assembler::vpcmpeqb(XMMRegister dst, XMMRegister src1, Address src2, int vector_len) {
+  assert(vector_len == AVX_128bit ? VM_Version::supports_avx() : VM_Version::supports_avx2(), "");
+  assert(vector_len <= AVX_256bit, "evex encoding is different - has k register as dest");
+  InstructionAttr attributes(vector_len, /* rex_w */ false, /* legacy_mode */ true, /* no_mask_reg */ true, /* uses_vl */ false);
+  vex_prefix(src2, src1->encoding(), dst->encoding(), VEX_SIMD_66, VEX_OPCODE_0F, &attributes);
+  emit_int8(0x74);
+  emit_operand(dst, src2, 0);
+}
+
 // In this context, kdst is written the mask used to process the equal components
 void Assembler::evpcmpeqb(KRegister kdst, XMMRegister nds, XMMRegister src, int vector_len) {
   assert(VM_Version::supports_avx512bw(), "");
@@ -4530,6 +4547,16 @@ void Assembler::vpcmpeqw(XMMRegister dst, XMMRegister nds, XMMRegister src, int 
   emit_int16(0x75, (0xC0 | encode));
 }
 
+// In this context, the dst vector contains the components that are equal, non equal components are zeroed in dst
+void Assembler::vpcmpeqw(XMMRegister dst, XMMRegister nds, Address src, int vector_len) {
+  assert(vector_len == AVX_128bit ? VM_Version::supports_avx() : VM_Version::supports_avx2(), "");
+  assert(vector_len <= AVX_256bit, "evex encoding is different - has k register as dest");
+  InstructionAttr attributes(vector_len, /* rex_w */ false, /* legacy_mode */ true, /* no_mask_reg */ true, /* uses_vl */ false);
+  vex_prefix(src, nds->encoding(), dst->encoding(), VEX_SIMD_66, VEX_OPCODE_0F, &attributes);
+  emit_int8(0x75);
+  emit_operand(dst, src, 0);
+}
+
 // In this context, kdst is written the mask used to process the equal components
 void Assembler::evpcmpeqw(KRegister kdst, XMMRegister nds, XMMRegister src, int vector_len) {
   assert(VM_Version::supports_avx512bw(), "");
@@ -4544,6 +4571,19 @@ void Assembler::evpcmpeqw(KRegister kdst, XMMRegister nds, Address src, int vect
   InstructionMark im(this);
   InstructionAttr attributes(vector_len, /* rex_w */ false, /* legacy_mode */ false, /* no_mask_reg */ true, /* uses_vl */ true);
   attributes.set_address_attributes(/* tuple_type */ EVEX_FVM, /* input_size_in_bits */ EVEX_NObit);
+  attributes.set_is_evex_instruction();
+  int dst_enc = kdst->encoding();
+  vex_prefix(src, nds->encoding(), dst_enc, VEX_SIMD_66, VEX_OPCODE_0F, &attributes);
+  emit_int8(0x75);
+  emit_operand(as_Register(dst_enc), src, 0);
+}
+
+void Assembler::evpcmpeqw(KRegister kdst, KRegister mask, XMMRegister nds, Address src, int vector_len) {
+  assert(VM_Version::supports_avx512bw(), "");
+  InstructionMark im(this);
+  InstructionAttr attributes(vector_len, /* rex_w */ false, /* legacy_mode */ false, /* no_mask_reg */ true, /* uses_vl */ true);
+  attributes.set_address_attributes(/* tuple_type */ EVEX_FVM, /* input_size_in_bits */ EVEX_NObit);
+  attributes.set_embedded_opmask_register_specifier(mask);
   attributes.set_is_evex_instruction();
   int dst_enc = kdst->encoding();
   vex_prefix(src, nds->encoding(), dst_enc, VEX_SIMD_66, VEX_OPCODE_0F, &attributes);

@@ -183,6 +183,9 @@ class StubRoutines: AllStatic {
   static address _arrayof_jint_disjoint_arraycopy;
   static address _arrayof_jlong_disjoint_arraycopy;
   static address _arrayof_oop_disjoint_arraycopy, _arrayof_oop_disjoint_arraycopy_uninit;
+  static address _string_indexof2LL;
+  static address _string_indexof2UU;
+  static address _string_indexof2UL;
 
   // cache line writeback
   static address _data_cache_writeback;
@@ -367,6 +370,9 @@ class StubRoutines: AllStatic {
   }
   static address data_cache_writeback()              { return _data_cache_writeback; }
   static address data_cache_writeback_sync()         { return _data_cache_writeback_sync; }
+  static address string_indexof2LL()                   { return _string_indexof2LL; }
+  static address string_indexof2UU()                   { return _string_indexof2UU; }
+  static address string_indexof2UL()                   { return _string_indexof2UL; }
 
   typedef void (*DataCacheWritebackStub)(void *);
   static DataCacheWritebackStub DataCacheWriteback_stub()         { return CAST_TO_FN_PTR(DataCacheWritebackStub,  _data_cache_writeback); }

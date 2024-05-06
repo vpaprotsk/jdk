@@ -2494,6 +2494,13 @@ public final class String
         return isLatin1() ? StringLatin1.indexOf(value, ch, 0, value.length)
                 : StringUTF16.indexOf(value, ch, 0, value.length >> 1);
     }
+    /** comment
+     * @param   ch   a character (Unicode code point).
+     * @return  the index of the first occurrence of the character in the */
+    public int indexOf2(int ch) {
+        return isLatin1() ? StringLatin1.indexOf2(value, ch, 0, value.length)
+                : StringUTF16.indexOf2(value, ch, 0, value.length >> 1);
+    }
 
     /**
      * Returns the index within this string of the first occurrence of the
@@ -2552,6 +2559,15 @@ public final class String
         return isLatin1() ? StringLatin1.indexOf(value, ch, Math.min(fromIndex, value.length), value.length)
                 : StringUTF16.indexOf(value, ch, Math.min(fromIndex, value.length >> 1), value.length >> 1);
     }
+    /** comment 
+     * @param   ch          a character (Unicode code point).
+     * @param   fromIndex   the index to start the search from.
+     * @return  the index of the first occurrence of the character in the*/
+    public int indexOf2(int ch, int fromIndex) {
+        fromIndex = Math.max(fromIndex, 0);
+        return isLatin1() ? StringLatin1.indexOf2(value, ch, Math.min(fromIndex, value.length), value.length)
+                : StringUTF16.indexOf2(value, ch, Math.min(fromIndex, value.length >> 1), value.length >> 1);
+    }
 
     /**
      * Returns the index within this string of the first occurrence of the
@@ -2597,6 +2613,16 @@ public final class String
         checkBoundsBeginEnd(beginIndex, endIndex, length());
         return isLatin1() ? StringLatin1.indexOf(value, ch, beginIndex, endIndex)
                 : StringUTF16.indexOf(value, ch, beginIndex, endIndex);
+    }
+    /** comment 
+     * @param   ch          a character (Unicode code point).
+     * @param   beginIndex  the index to start the search from (included).
+     * @param   endIndex    the index to stop the search at (excluded).
+     * @return  the index of the first occurrence of the character in t*/
+    public int indexOf2(int ch, int beginIndex, int endIndex) {
+        checkBoundsBeginEnd(beginIndex, endIndex, length());
+        return isLatin1() ? StringLatin1.indexOf2(value, ch, beginIndex, endIndex)
+                : StringUTF16.indexOf2(value, ch, beginIndex, endIndex);
     }
 
     /**
@@ -2690,6 +2716,20 @@ public final class String
         }
         return StringUTF16.indexOfLatin1(value, str.value);
     }
+    /** comment 
+     * @param   str   the substring to search for.
+     * @return  the index of the first occurrence of the specified substrin*/
+    public int indexOf2(String str) {
+        byte coder = coder();
+        if (coder == str.coder()) {
+            return isLatin1() ? StringLatin1.indexOf2(value, str.value)
+                              : StringUTF16.indexOf2(value, str.value);
+        }
+        if (coder == LATIN1) {  // str.coder == UTF16
+            return -1;
+        }
+        return StringUTF16.indexOfLatin1(value, str.value);
+    }
 
     /**
      * Returns the index within this string of the first occurrence of the
@@ -2724,6 +2764,13 @@ public final class String
     public int indexOf(String str, int fromIndex) {
         return indexOf(value, coder(), length(), str, fromIndex);
     }
+    /** comment 
+     * @param   str         the substring to search for.
+     * @param   fromIndex   the index from which to start the search.
+     * @return  the index of the first occurrence of the specified substr*/
+    public int indexOf2(String str, int fromIndex) {
+        return indexOf2(value, coder(), length(), str, fromIndex);
+    }
 
     /**
      * Returns the index of the first occurrence of the specified substring
@@ -2756,6 +2803,22 @@ public final class String
         }
         checkBoundsBeginEnd(beginIndex, endIndex, length());
         return indexOf(value, coder(), endIndex, str, beginIndex);
+    }
+    /** comment
+     * @param   str         the substring to search for.
+     * @param   beginIndex  the index to start the search from (included).
+     * @param   endIndex    the index to stop the search at (excluded).
+     * @return  the index of the first occurrence of the specified substring
+     *          within the specified index range,
+     *          or {@code -1} if there is no such occurrence.
+     * @throws  StringIndexOutOfBoundsException if {@code beginIndex} */
+    public int indexOf2(String str, int beginIndex, int endIndex) {
+        if (str.length() == 1) {
+            /* Simple optimization, can be omitted without behavioral impact */
+            return indexOf2(str.charAt(0), beginIndex, endIndex);
+        }
+        checkBoundsBeginEnd(beginIndex, endIndex, length());
+        return indexOf2(value, coder(), endIndex, str, beginIndex);
     }
 
     /**
@@ -2792,6 +2855,36 @@ public final class String
         }
         // srcCoder == UTF16 && tgtCoder == LATIN1) {
         return StringUTF16.indexOfLatin1(src, srcCount, tgt, tgtCount, fromIndex);
+    }
+    /** comment 
+     * @param   src       the characters being searched.
+     * @param   srcCoder  the coder of the source string.
+     * @param   srcCount  last index (exclusive) in the source string.
+     * @param   tgtStr    the characters being searched for.
+     * @param   fromIndex the index to begin searching from.*/
+    static int indexOf2(byte[] src, byte srcCoder, int srcCount,
+                       String tgtStr, int fromIndex) {
+        fromIndex = Math.clamp(fromIndex, 0, srcCount);
+        int tgtCount = tgtStr.length();
+        if (tgtCount > srcCount - fromIndex) {
+            return -1;
+        }
+        if (tgtCount == 0) {
+            return fromIndex;
+        }
+
+        byte[] tgt = tgtStr.value;
+        byte tgtCoder = tgtStr.coder();
+        if (srcCoder == tgtCoder) {
+            return srcCoder == LATIN1
+                ? StringLatin1.indexOf2(src, srcCount, tgt, tgtCount, fromIndex)
+                : StringUTF16.indexOf2(src, srcCount, tgt, tgtCount, fromIndex);
+        }
+        if (srcCoder == LATIN1) {    //  && tgtCoder == UTF16
+            return -1;
+        }
+        // srcCoder == UTF16 && tgtCoder == LATIN1) {
+        return StringUTF16.indexOfLatin12(src, srcCount, tgt, tgtCount, fromIndex);
     }
 
     /**

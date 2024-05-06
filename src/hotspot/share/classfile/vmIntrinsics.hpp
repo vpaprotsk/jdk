@@ -401,6 +401,17 @@ class methodHandle;
    do_name(     indexOfUL_name,                                  "indexOfLatin1")                                       \
    do_signature(indexOfI_signature,                              "([BI[BII)I")                                          \
    do_signature(indexOfChar_signature,                           "([BIII)I")                                            \
+  do_intrinsic(_indexOf2L,                 java_lang_StringLatin1,indexOf2_name, compareTo_indexOf_signature,      F_S)   \
+  do_intrinsic(_indexOf2U,                 java_lang_StringUTF16, indexOf2_name, compareTo_indexOf_signature,      F_S)   \
+  do_intrinsic(_indexOf2UL,                java_lang_StringUTF16, indexOfUL2_name, compareTo_indexOf_signature,    F_S)   \
+  do_intrinsic(_indexOf2IL,                java_lang_StringLatin1,indexOf2_name, indexOfI_signature,               F_S)   \
+  do_intrinsic(_indexOf2IU,                java_lang_StringUTF16, indexOf2_name, indexOfI_signature,               F_S)   \
+  do_intrinsic(_indexOf2IUL,               java_lang_StringUTF16, indexOfUL2_name, indexOfI_signature,             F_S)   \
+  do_intrinsic(_indexOf2U_char,            java_lang_StringUTF16, indexOfChar2_name, indexOfChar_signature,        F_S)   \
+  do_intrinsic(_indexOf2L_char,            java_lang_StringLatin1,indexOfChar2_name, indexOfChar_signature,        F_S)   \
+   do_name(     indexOf2_name,                                    "indexOf2")                                             \
+   do_name(     indexOfChar2_name,                                "indexOfChar2")                                         \
+   do_name(     indexOfUL2_name,                                  "indexOfLatin12")                                       \
   do_intrinsic(_equalsL,                  java_lang_StringLatin1,equals_name, equalsB_signature,                 F_S)   \
                                                                                                                         \
   do_intrinsic(_isDigit,                  java_lang_CharacterDataLatin1, isDigit_name,      int_bool_signature,  F_R)   \

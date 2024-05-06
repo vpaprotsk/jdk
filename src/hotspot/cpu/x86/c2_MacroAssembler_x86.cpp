@@ -2821,6 +2821,73 @@ void C2_MacroAssembler::vconvert_b2x(BasicType to_elem_bt, XMMRegister dst, XMMR
 
 //-------------------------------------------------------------------------------------------
 
+void C2_MacroAssembler::string_indexof_avx(Register haystack, Register needle,
+                      Register haystack_len, Register needle_len,
+                      int haystack_len2, int needle_len2, Register result,
+                      XMMRegister xtmp1, XMMRegister xtmp2, XMMRegister xtmp3, XMMRegister xtmp4, 
+                      Register tmp1, Register tmp2, Register tmp3, Register tmp4, int ae) {
+
+  Register first_index = tmp1; // offset from last_index (redundant?)
+  Register last_index = tmp2;
+  Register mask = tmp3;
+  Register bitpos = tmp4;
+  XMMRegister first = xtmp1;
+  XMMRegister last = xtmp2;
+  XMMRegister first_block = xtmp3;
+  XMMRegister last_block = xtmp4;
+
+  movq(haystack_len, result);
+
+/*
+    xor  first_index,first_index
+    lea  last_index,[needle_len-1]
+    vpbroadcastb    first, BYTE PTR [needle+0]
+    vpbroadcastb    last, BYTE PTR [needle+last_index]
+
+.LOOP1
+    lea  last_index,[last_index+32]
+    jmp less, .DONE_LOOP1
+    vpcmpeqb        ymm2, ymm2, YMMWORD PTR [haystack+first_index]
+    vpcmpeqb        ymm3, ymm3, YMMWORD PTR [haystack+last_index-32]
+    vpand           ymm2, ymm2, ymm3
+    vpmovmskb       mask, ymm2
+  .LOOP2
+        test            mask,mask
+        jmp zero .DONE_LOOP2
+        tzcnt   bitpos, mask
+        # switch(needle_len)
+        call cmpmem(haystack + first_index + bitpos + 1, needle + 1, needle_len - 2)
+        test    rax,rax
+        jmp zero,.DONE_LOOP2
+        lea rax,[first_index + bitpos]
+        ret
+  .DONE_LOOP2
+    lea  first_index,[first_index+32]
+.DONE_LOOP1
+
+.LOOP1
+    lea  last_index,[last_index+32]
+    jmp less, .DONE_LOOP1
+    vpcmpeqb        ymm2, ymm2, YMMWORD PTR [haystack+first_index]
+    vpcmpeqb        ymm3, ymm3, YMMWORD PTR [haystack+last_index-32]
+    vpand           ymm2, ymm2, ymm3
+    vpmovmskb       mask, ymm2
+  .LOOP2
+        test            mask,mask
+        jmp zero .DONE_LOOP2
+        tzcnt   bitpos, mask
+        # switch(needle_len)
+        call cmpmem(haystack + first_index + bitpos + 1, needle + 1, needle_len - 2)
+        test    rax,rax
+        jmp zero,.DONE_LOOP2
+        lea rax,[first_index + bitpos]
+        ret
+  .DONE_LOOP2
+    lea  first_index,[first_index+32]
+.DONE_LOOP1
+*/
+}
+
 // IndexOf for constant substrings with size >= 8 chars
 // which don't need to be loaded through stack.
 void C2_MacroAssembler::string_indexofC8(Register str1, Register str2,

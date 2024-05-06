@@ -28,6 +28,7 @@
 #include "code/codeBlob.hpp"
 #include "runtime/continuation.hpp"
 #include "runtime/stubCodeGenerator.hpp"
+#include "opto/intrinsicnode.hpp"
 
 // Stub Code definitions
 
@@ -435,6 +436,7 @@ class StubGenerator: public StubCodeGenerator {
   void cc20_keystream_collate_avx512(XMMRegister aVec, XMMRegister bVec,
     XMMRegister cVec, XMMRegister dVec, Register baseAddr, int baseOffset);
 
+  address generate_string_indexOf2I(StrIntrinsicNode::ArgEnc ae);
   // Poly1305 multiblock using IFMA instructions
   address generate_poly1305_processBlocks();
   void poly1305_process_blocks_avx512(const Register input, const Register length,

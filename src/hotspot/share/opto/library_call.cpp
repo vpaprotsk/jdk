@@ -310,6 +310,14 @@ bool LibraryCallKit::try_to_inline(int predicate) {
   case vmIntrinsics::_indexOfU_char:            return inline_string_indexOfChar(StrIntrinsicNode::U);
   case vmIntrinsics::_indexOfL_char:            return inline_string_indexOfChar(StrIntrinsicNode::L);
 
+  // case vmIntrinsics::_indexOf2L:                 return inline_string_indexOf(StrIntrinsicNode::LL);
+  // case vmIntrinsics::_indexOf2U:                 return inline_string_indexOf(StrIntrinsicNode::UU);
+  // case vmIntrinsics::_indexOf2UL:                return inline_string_indexOf(StrIntrinsicNode::UL);
+  case vmIntrinsics::_indexOf2IL:                return inline_string_indexOf2I(StrIntrinsicNode::LL);
+  case vmIntrinsics::_indexOf2IU:                return inline_string_indexOf2I(StrIntrinsicNode::UU);
+  case vmIntrinsics::_indexOf2IUL:               return inline_string_indexOf2I(StrIntrinsicNode::UL);
+  // case vmIntrinsics::_indexOf2U_char:            return inline_string_indexOfChar(StrIntrinsicNode::U);
+  // case vmIntrinsics::_indexOf2L_char:            return inline_string_indexOfChar(StrIntrinsicNode::L);
   case vmIntrinsics::_equalsL:                  return inline_string_equals(StrIntrinsicNode::LL);
 
   case vmIntrinsics::_vectorizedHashCode:       return inline_vectorizedHashCode();
@@ -1179,6 +1187,55 @@ bool LibraryCallKit::inline_preconditions_checkIndex(BasicType bt) {
 }
 
 //------------------------------inline_string_indexOf------------------------
+bool LibraryCallKit::inline_string_indexOf2I(StrIntrinsicNode::ArgEnc ae) {
+  // printf(">>>>>>>>>> VP was here inline_string_indexOf2I\n");
+  address stubAddr;
+  const char *stubName;
+  assert(callee()->signature()->size() == 5, "String.indexOf2 has %d parameters", callee()->signature()->size());
+  switch(ae) {
+    case StrIntrinsicNode::LL:
+      stubAddr = StubRoutines::string_indexof2LL();
+      stubName = "string_indexOf2LL";
+      break;
+    case StrIntrinsicNode::UU:
+      stubAddr = StubRoutines::string_indexof2UU();
+      stubName = "string_indexOf2UU";
+      break;
+    case StrIntrinsicNode::UL:
+      stubAddr = StubRoutines::string_indexof2UL();
+      stubName = "string_indexOf2UL";
+      break;
+    default:
+      return false;
+  }
+
+  if (!stubAddr) return false;
+  if (stopped())  return true;
+
+  assert(callee()->signature()->size() == 5, "String.indexOf2() has 5 arguments");
+  Node* src         = argument(0); // byte[]
+  Node* src_count   = argument(1); // char count
+  Node* tgt         = argument(2); // byte[]
+  Node* tgt_count   = argument(3); // char count
+  Node* from_index  = argument(4); // char index
+
+  src = must_be_not_null(src, true);
+  tgt = must_be_not_null(tgt, true);
+
+  // Multiply byte array index by 2 if String is UTF16 encoded
+  Node* src_offset = from_index; //(ae == StrIntrinsicNode::LL) ? from_index : _gvn.transform(new LShiftINode(from_index, intcon(1)));
+  //src_count = _gvn.transform(new SubINode(src_count, from_index));
+  Node* src_start = array_element_address(src, intcon(0), T_BYTE);
+  Node* tgt_start = array_element_address(tgt, intcon(0), T_BYTE);
+
+  Node* call = make_runtime_call(RC_LEAF | RC_NO_FP, OptoRuntime::string_indexOf2_Type(),
+                                 stubAddr, stubName, TypePtr::BOTTOM,
+                                 src_offset, src_count, tgt_count, src_start, tgt_start);
+  Node* result = _gvn.transform(new ProjNode(call, TypeFunc::Parms));
+  set_result(result);
+  return true;
+}
+
 bool LibraryCallKit::inline_string_indexOf(StrIntrinsicNode::ArgEnc ae) {
   if (!Matcher::match_rule_supported(Op_StrIndexOf)) {
     return false;
