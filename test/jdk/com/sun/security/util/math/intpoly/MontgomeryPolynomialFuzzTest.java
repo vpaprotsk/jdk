@@ -62,8 +62,10 @@ public class MontgomeryPolynomialFuzzTest {
 
     private static void check(BigInteger reference,
             ImmutableIntegerModuloP testValue, long seed) {
-        if (!reference.equals(testValue.asBigInteger())) {
-            throw new RuntimeException("SEED: " + seed);
+        BigInteger test = testValue.asBigInteger();
+        if (!reference.equals(test)) {
+            throw new RuntimeException("SEED[" + seed + "]: " + 
+                reference.toString(16) + " != " + test.toString(16));
         }
     }
 

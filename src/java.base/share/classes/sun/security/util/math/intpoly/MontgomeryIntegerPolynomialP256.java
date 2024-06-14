@@ -103,8 +103,8 @@ public final class MontgomeryIntegerPolynomialP256 extends IntegerPolynomial
         setLimbsValuePositive(v, vLimbs);
 
         // Convert to Montgomery domain
-        int numAdds = mult(vLimbs, h, montLimbs);
-        return new ImmutableElement(montLimbs, numAdds);
+        mult(vLimbs, h, montLimbs);
+        return new ImmutableElement(montLimbs, 0);
     }
 
     @Override
@@ -124,12 +124,32 @@ public final class MontgomeryIntegerPolynomialP256 extends IntegerPolynomial
      * Will return an unreduced value
      */
     @Override
-    protected int multByInt(long[] a, long b) {
+    protected void multByInt(long[] a, long b) {
         assert (b < (1 << BITS_PER_LIMB));
-        for (int i = 0; i < a.length; i++) {
-            a[i] *= b;
+        if (b == 2) {
+            for (int i = 0; i < NUM_LIMBS; i++) {
+                a[i] <<= 1;
+            }
+            reducePositive(a);
+        } else if (b == 3) {
+            for (int i = 0; i < NUM_LIMBS; i++) {
+                a[i] *= 3;
+            }
+            reducePositive(a);
+            reducePositive(a);
+        } else if (b == 4) {
+            for (int i = 0; i < NUM_LIMBS; i++) {
+                a[i] <<= 2;
+            }
+            reducePositive(a);
+            reducePositive(a);
+            reducePositive(a);
+        } else {
+            for (int i = 0; i < NUM_LIMBS; i++) {
+                a[i] *= b;
+            }
+            reduce(a);
         }
-        return (int) (b - 1);
     }
 
     @Override
@@ -163,9 +183,10 @@ public final class MontgomeryIntegerPolynomialP256 extends IntegerPolynomial
     }
 
     @Override
-    protected int square(long[] a, long[] r) {
-        return mult(a, a, r);
+    protected void square(long[] a, long[] r) {
+        mult(a, a, r);
     }
+
 
     /**
      * Unrolled Word-by-Word Montgomery Multiplication r = a * b * 2^-260 (mod P)
@@ -174,8 +195,14 @@ public final class MontgomeryIntegerPolynomialP256 extends IntegerPolynomial
      * for a Montgomery Friendly modulus p". Note: Step 6. Skipped; Instead use
      * numAdds to reuse existing overflow logic.
      */
+    @Override
+    protected void mult(long[] a, long[] b, long[] r) {
+        multImpl(a, b, r);
+        reducePositive(r);
+    }
+
     @IntrinsicCandidate
-    protected int mult(long[] a, long[] b, long[] r) {
+    private void multImpl(long[] a, long[] b, long[] r) {
         long aa0 = a[0];
         long aa1 = a[1];
         long aa2 = a[2];
@@ -436,8 +463,6 @@ public final class MontgomeryIntegerPolynomialP256 extends IntegerPolynomial
         r[2] = ((c7 & mask) | (c2 & ~mask));
         r[3] = ((c8 & mask) | (c3 & ~mask));
         r[4] = ((c9 & mask) | (c4 & ~mask));
-
-        return 0;
     }
 
     @Override
@@ -516,8 +541,8 @@ public final class MontgomeryIntegerPolynomialP256 extends IntegerPolynomial
         super.encode(v, offset, length, highByte, vLimbs);
 
         // Convert to Montgomery domain
-        int numAdds = mult(vLimbs, h, montLimbs);
-        return new ImmutableElement(montLimbs, numAdds);
+        mult(vLimbs, h, montLimbs);
+        return new ImmutableElement(montLimbs, 0);
     }
 
     /*
@@ -555,5 +580,27 @@ public final class MontgomeryIntegerPolynomialP256 extends IntegerPolynomial
         // 2^(52i-4*52-48)
         limbs[i - 5] += (v << 4) & LIMB_MASK;
         limbs[i - 4] += v >> 48;
+    }
+
+    // Used when limbs a could overflow by one modulus.
+    protected void reducePositive(long[] a) {
+        long aa0 = a[0];
+        long aa1 = a[1] + (aa0>>BITS_PER_LIMB);
+        long aa2 = a[2] + (aa1>>BITS_PER_LIMB);
+        long aa3 = a[3] + (aa2>>BITS_PER_LIMB);
+        long aa4 = a[4] + (aa3>>BITS_PER_LIMB);
+
+        long c0 = a[0] - modulus[0];
+        long c1 = a[1] - modulus[1] + (c0 >> BITS_PER_LIMB);
+        long c2 = a[2] - modulus[2] + (c1 >> BITS_PER_LIMB);
+        long c3 = a[3] - modulus[3] + (c2 >> BITS_PER_LIMB);
+        long c4 = a[4] - modulus[4] + (c3 >> BITS_PER_LIMB);
+        long mask = c4 >> BITS_PER_LIMB; // Signed shift!
+
+        a[0] = ((aa0 & mask) | (c0 & ~mask)) & LIMB_MASK;
+        a[1] = ((aa1 & mask) | (c1 & ~mask)) & LIMB_MASK;
+        a[2] = ((aa2 & mask) | (c2 & ~mask)) & LIMB_MASK;
+        a[3] = ((aa3 & mask) | (c3 & ~mask)) & LIMB_MASK;
+        a[4] = ((aa4 & mask) | (c4 & ~mask));
     }
 }
