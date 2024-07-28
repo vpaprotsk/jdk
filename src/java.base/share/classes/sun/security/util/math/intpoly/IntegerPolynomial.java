@@ -84,6 +84,10 @@ public abstract sealed class IntegerPolynomial implements IntegerFieldModuloP
      * in a. Requires that a.length == numLimbs.
      */
     protected abstract void reduce(long[] a);
+    // @ForceInline
+    protected int reduceNegative(long[] a, int numAdds) { return numAdds;}
+    // @ForceInline
+    protected int reducePositive(long[] a, int numAdds) { return numAdds;}
 
     /**
      * Multiply an IntegerPolynomial representation (a) with a long (b) and
@@ -580,7 +584,7 @@ public abstract sealed class IntegerPolynomial implements IntegerFieldModuloP
                 newLimbs[i] = limbs[i] + b.limbs[i];
             }
 
-            int newNumAdds = Math.max(numAdds, b.numAdds) + 1;
+            int newNumAdds = reducePositive(newLimbs, Math.max(numAdds, b.numAdds) + 1);
             return new ImmutableElement(newLimbs, newNumAdds);
         }
 
@@ -592,7 +596,8 @@ public abstract sealed class IntegerPolynomial implements IntegerFieldModuloP
                 newLimbs[i] = -limbs[i];
             }
 
-            return new ImmutableElement(newLimbs, numAdds+1);
+            int newNumAdds = reduceNegative(newLimbs, numAdds+1);
+            return new ImmutableElement(newLimbs, newNumAdds);
         }
 
         protected long[] cloneLow(long[] limbs) {
@@ -698,8 +703,8 @@ public abstract sealed class IntegerPolynomial implements IntegerFieldModuloP
             MutableElement other = (MutableElement) b;
 
             conditionalSwap(swap, limbs, other.limbs);
-            int numAddsTemp = numAdds;
-            numAdds = other.numAdds;
+            int numAddsTemp = Math.max(numAdds, other.numAdds);
+            numAdds = numAddsTemp;
             other.numAdds = numAddsTemp;
         }
 
@@ -790,6 +795,7 @@ public abstract sealed class IntegerPolynomial implements IntegerFieldModuloP
             }
 
             numAdds = Math.max(numAdds, b.numAdds) + 1;
+            numAdds = reducePositive(limbs, numAdds);
             return this;
         }
 
@@ -814,6 +820,7 @@ public abstract sealed class IntegerPolynomial implements IntegerFieldModuloP
             }
 
             numAdds = Math.max(numAdds, b.numAdds) + 1;
+            numAdds = reduceNegative(limbs, numAdds);
             return this;
         }
 
@@ -835,7 +842,7 @@ public abstract sealed class IntegerPolynomial implements IntegerFieldModuloP
             for (int i = 0; i < limbs.length; i++) {
                 limbs[i] = -limbs[i];
             }
-            numAdds++;
+            numAdds = reduceNegative(limbs, numAdds+1);
             return this;
         }
     }
@@ -869,4 +876,3 @@ public abstract sealed class IntegerPolynomial implements IntegerFieldModuloP
         }
     }
 }
-
