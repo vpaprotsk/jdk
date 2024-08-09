@@ -85,9 +85,11 @@ public abstract sealed class IntegerPolynomial implements IntegerFieldModuloP
      */
     protected abstract void reduce(long[] a);
     // @ForceInline
-    protected int reduceNegative(long[] a, int numAdds) { return numAdds;}
+    // protected int reduceNegative(long[] a, int numAdds) { return numAdds;}
+    abstract protected int reduceNegative(long[] a, int numAdds);
     // @ForceInline
-    protected int reducePositive(long[] a, int numAdds) { return numAdds;}
+    // protected int reducePositive(long[] a, int numAdds) { return numAdds;}
+    abstract protected int reducePositive(long[] a, int numAdds);
 
     /**
      * Multiply an IntegerPolynomial representation (a) with a long (b) and

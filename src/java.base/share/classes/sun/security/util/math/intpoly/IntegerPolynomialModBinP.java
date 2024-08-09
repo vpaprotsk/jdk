@@ -79,6 +79,9 @@ public sealed class IntegerPolynomialModBinP extends IntegerPolynomial {
         this.rightBitOffset = bitsPerLimb - bitOffset;
     }
 
+    protected int reduceNegative(long[] a, int numAdds) { return numAdds;}
+    protected int reducePositive(long[] a, int numAdds) { return numAdds;}
+
     @Override
     protected void finalCarryReduceLast(long[] limbs) {
 

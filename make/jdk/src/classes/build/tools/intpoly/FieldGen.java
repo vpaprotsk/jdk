@@ -650,6 +650,9 @@ public class FieldGen {
         coqTerms.append("nil.");
         result.appendLine(coqTerms.toString());
 
+        result.appendLine("protected int reduceNegative(long[] a, int numAdds) { return numAdds;}");
+        result.appendLine("protected int reducePositive(long[] a, int numAdds) { return numAdds;}");
+
         result.appendLine("private static BigInteger evaluateModulus() {");
         result.incrIndent();
         result.appendLine("BigInteger result = BigInteger.valueOf(2).pow("

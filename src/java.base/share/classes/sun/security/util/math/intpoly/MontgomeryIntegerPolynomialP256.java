@@ -228,26 +228,26 @@ public final class MontgomeryIntegerPolynomialP256 extends IntegerPolynomial
     @Override
     protected void mult(long[] a, long[] b, long[] r) {
         multImpl(a, b, r);
-        //reducePositive(r);
+        //reducePositive(r, 0);
     }
 
     @ForceInline
     @IntrinsicCandidate
     private void multImpl(long[] a, long[] b, long[] r) {
-        long aa0 = a[0];
-        long aa1 = a[1];
-        long aa2 = a[2];
-        long aa3 = a[3];
-        long aa4 = a[4];
+        long aa0 = b[0];
+        long aa1 = b[1];
+        long aa2 = b[2];
+        long aa3 = b[3];
+        long aa4 = b[4];
 
-        long bb0 = b[0];
-        long bb1 = b[1];
-        long bb2 = b[2];
-        long bb3 = b[3];
-        long bb4 = b[4];
+        long bb0 = a[0];
+        long bb1 = a[1];
+        long bb2 = a[2];
+        long bb3 = a[3];
+        long bb4 = a[4];
 
-        // debugRow("mult a ", b, 0, NUM_LIMBS);
-        // debugRow("mult b ", a, 0, NUM_LIMBS);
+        debugRow("mult a ", a, 0, NUM_LIMBS);
+        debugRow("mult b ", b, 0, NUM_LIMBS);
 
         final long shift1 = 64 - BITS_PER_LIMB; // 12
         final long shift2 = BITS_PER_LIMB; // 40
@@ -312,7 +312,7 @@ public final class MontgomeryIntegerPolynomialP256 extends IntegerPolynomial
         c4 = d4 + dd3;
         c5 = dd4;
 
-        // debugRow("mult row 1 ", new long[]{c1, c2, c3, c4, c5}, 0, NUM_LIMBS);
+        debugRow("mult row 1 ", new long[]{c1, c2, c3, c4, c5}, 0, NUM_LIMBS);
 
         // Row 1 - multiply by aa1 and reduce out c1
         d0 = aa1 * bb0;
@@ -355,7 +355,7 @@ public final class MontgomeryIntegerPolynomialP256 extends IntegerPolynomial
         c5 += d4 + dd3;
         c6 = dd4;
 
-        // debugRow("mult row 2 ", new long[]{c2, c3, c4, c5, c6}, 0, NUM_LIMBS);
+        debugRow("mult row 2 ", new long[]{c2, c3, c4, c5, c6}, 0, NUM_LIMBS);
 
         // Row 2 - multiply by aa2 and reduce out c2
         d0 = aa2 * bb0;
@@ -398,7 +398,7 @@ public final class MontgomeryIntegerPolynomialP256 extends IntegerPolynomial
         c6 += d4 + dd3;
         c7 = dd4;
 
-        // debugRow("mult row 3 ", new long[]{c3, c4, c5, c6, c7}, 0, NUM_LIMBS);
+        debugRow("mult row 3 ", new long[]{c3, c4, c5, c6, c7}, 0, NUM_LIMBS);
 
         // Row 3 - multiply by aa3 and reduce out c3
         d0 = aa3 * bb0;
@@ -441,7 +441,7 @@ public final class MontgomeryIntegerPolynomialP256 extends IntegerPolynomial
         c7 += d4 + dd3;
         c8 = dd4;
 
-        // debugRow("mult row 4 ", new long[]{c4, c5, c6, c7, c8}, 0, NUM_LIMBS);
+        debugRow("mult row 4 ", new long[]{c4, c5, c6, c7, c8}, 0, NUM_LIMBS);
 
         // Row 4 - multiply by aa3 and reduce out c4
         d0 = aa4 * bb0;
@@ -489,7 +489,7 @@ public final class MontgomeryIntegerPolynomialP256 extends IntegerPolynomial
         c7 &= LIMB_MASK;
         c8 &= LIMB_MASK;
 
-        // debugRow("mult row 5 ", new long[]{c5, c6, c7, c8, c9}, 0, NUM_LIMBS);
+        debugRow("mult row 5 ", new long[]{c5, c6, c7, c8, c9}, 0, NUM_LIMBS);
 
         // At this point, the result could overflow by one modulus.
         c0 = c5 - modulus[0];
