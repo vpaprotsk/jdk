@@ -77,45 +77,8 @@ public class ECOperationsFuzzTest {
         AffinePoint affine = testValue.asAffine();
         if (!affineRef.equals(affine)) {
             throw new RuntimeException(
-                    "Found error with seed " + seed + " at iteration " + iter);
+                    "Found error with seed " + seed + "at iteration " + iter);
         }
-    }
-
-    public static void test2(int repeat) throws Exception {
-        int keySize = 256;
-        ECParameterSpec params = ECUtil.getECParameterSpec(keySize);
-        NamedCurve curve = CurveDB.lookup(KnownOIDs.secp256r1.value());
-        ECPoint generator = curve.getGenerator();
-        BigInteger b = curve.getCurve().getB();
-        if (params == null || generator == null) {
-            throw new RuntimeException(
-                    "No EC parameters available for key size " + keySize + " bits");
-        }
-
-        ECOperations ops = ECOperations.forParameters(params).get();
-        ECOperations opsReference = new ECOperations(
-                IntegerPolynomialP256.ONE.getElement(b), P256OrderField.ONE);
-
-        AffinePoint refAffineGenerator = AffinePoint.fromECPoint(generator,
-                opsReference.getField());
-        AffinePoint montAffineGenerator = AffinePoint.fromECPoint(generator,
-                ops.getField());
-
-        MutablePoint refProjGenerator = new ProjectivePoint.Mutable(
-                refAffineGenerator.getX(false).mutable(),
-                refAffineGenerator.getY(false).mutable(),
-                opsReference.getField().get1().mutable());
-
-        MutablePoint projGenerator = new ProjectivePoint.Mutable(
-                montAffineGenerator.getX(false).mutable(),
-                montAffineGenerator.getY(false).mutable(),
-                ops.getField().get1().mutable());
-        
-        check(refProjGenerator, projGenerator, -1, 1);
-
-        opsReference.setDouble2((ProjectivePoint.Mutable)refProjGenerator);
-        ops.setDouble2((ProjectivePoint.Mutable)projGenerator);
-        check(refProjGenerator, projGenerator, -1, 2);
     }
 
     public static void test(int repeat) throws Exception {

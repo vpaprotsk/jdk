@@ -276,119 +276,6 @@ public class ECOperations {
 
     }
 
-    private static void check(MutableIntegerModuloP v1, MutableIntegerModuloP v2) {
-        IntegerMontgomeryFieldModuloP field =
-                (IntegerMontgomeryFieldModuloP)v1.getField();
-        BigInteger v1Big = v1.asBigInteger();
-        BigInteger v2Big = field.getElement(v2.asBigInteger()).asBigInteger();
-        if (v1Big.equals(v2Big)){
-            System.err.println("Good: " + v1Big.toString(16) + " == " + v2Big.toString(16));
-        } else {
-            throw new RuntimeException(v1Big.toString(16) + " != " + v2Big.toString(16));
-        }
-    }
-
-    private static void print(String prefix, MutableIntegerModuloP v1) {
-        BigInteger v1Big = v1.asBigInteger();
-        if (!(v1.getField() instanceof IntegerMontgomeryFieldModuloP)) {
-            IntegerMontgomeryFieldModuloP field = MontgomeryIntegerPolynomialP256.ONE;
-            v1Big = field.getElement(v1Big).asBigInteger();
-        }
-        System.out.println(prefix + v1Big.toString(16));
-    }
-
-    private static void print2(String prefix, MutableIntegerModuloP v1) {
-        if (v1.getField() instanceof IntegerMontgomeryFieldModuloP) {
-            debugRow(prefix, v1.getLimbs(), 0, 5);
-        }
-    }
-
-    public static void debugRow(String prefix, long[] c, int start, int length) {
-        final java.util.HexFormat hex = java.util.HexFormat.of();
-        StringBuilder builder = new StringBuilder(prefix+"\n");
-        for (int i = length-1; i>= 0; i--) {
-            builder.append("0x" + hex.toHexDigits(c[start + i]) + " * 2^" + (i*52) + " + ");
-        }
-        System.out.println(builder.toString());
-    }
-
-    public void setDouble2(ProjectivePoint.Mutable p) {
-        IntegerModuloP zero = p.getField().get0();
-        MutableIntegerModuloP t0 = zero.mutable();
-        MutableIntegerModuloP t1 = zero.mutable();
-        MutableIntegerModuloP t2 = zero.mutable();
-        MutableIntegerModuloP t3 = zero.mutable();
-        MutableIntegerModuloP t4 = zero.mutable();
-
-        t0.setValue(p.getX()).setSquare();
-        t1.setValue(p.getY()).setSquare();
-        t2.setValue(p.getZ()).setSquare();
-        t3.setValue(p.getX()).setProduct(p.getY());
-        t4.setValue(p.getY()).setProduct(p.getZ());
-        print("t0 = ", t0);
-        print("t1 = ", t1);
-        print("t2 = ", t2);
-        print("t3 = ", t3);
-        print("t4 = ", t4);
-
-        t3.setSum(t3);
-        p.getZ().setProduct(p.getX());
-
-        p.getZ().setProduct(two);
-
-        p.getY().setValue(t2).setProduct(b);
-        p.getY().setDifference(p.getZ());
-
-        p.getY().setProduct(three);
-        p.getX().setValue(t1).setDifference(p.getY());
-
-        p.getY().setSum(t1);
-        p.getY().setProduct(p.getX());
-        p.getX().setProduct(t3);
-
-        print("X = ", p.getX());
-        print("Y = ", p.getY());
-        print("Z = ", p.getZ());
-
-        t2.setProduct(three);
-        p.getZ().setProduct(b);
-
-        p.getZ().setDifference(t2);
-        p.getZ().setDifference(t0);
-        p.getZ().setProduct(three);
-        t0.setProduct(three);
-
-        print("t0 = ", t0);
-
-        t0.setDifference(t2);
-
-        print2("t0 = ", t0);
-        print2("Z = ", p.getZ());
-
-        
-        t0.setProduct(p.getZ());
-        print("1 t0 = ", t0);
-        print("1 Z = ", p.getZ());
-        p.getY().setSum(t0);
-
-        print("t0 = ", t0);
-        print("Y = ", p.getY());
-        print("Z = ", p.getZ());
-
-        t4.setSum(t4);
-        p.getZ().setProduct(t4);
-
-        p.getX().setDifference(p.getZ());
-        p.getZ().setValue(t4).setProduct(t1);
-
-        p.getZ().setProduct(four);
-
-        print("X = ", p.getX());
-        print("Y = ", p.getY());
-        print("Z = ", p.getZ());
-        System.out.println();
-    }
-
     /**
      * Adds second Mutable (Projective) point to first.
      *
@@ -813,7 +700,7 @@ public class ECOperations {
                             java.util.HexFormat hex = java.util.HexFormat.of();
                             throw new RuntimeException(
                                 "Bad multiple found at [" +d+"]["+w+"]" +
-                                hex.formatHex(s) + " " + m.getX().asBigInteger() + " " + v.getX().asBigInteger()
+                                hex.formatHex(s) + " " + m.getX().asBigInteger()
                             );
                         }
                     }

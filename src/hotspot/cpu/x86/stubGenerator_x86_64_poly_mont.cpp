@@ -49,14 +49,6 @@ static address p256_mask52() {
   return (address)P256_MASK52;
 }
 
-ATTRIBUTE_ALIGNED(64) uint64_t P256_MASK_SIGN[] = {
-  0x0008000000000000ULL, 0x0008000000000000ULL,
-  0x0008000000000000ULL, 0x0008000000000000ULL,
-};
-static address p256_mask_sign() {
-  return (address)P256_MASK_SIGN;
-}
-
 ATTRIBUTE_ALIGNED(64) uint64_t SHIFT1R[] = {
   0x0000000000000001ULL, 0x0000000000000002ULL,
   0x0000000000000003ULL, 0x0000000000000004ULL,
@@ -149,11 +141,9 @@ static address mask_limb5() {
  *   Acc1 = Acc1 + Acc2
  *   output to rLimbs
  */
-void montgomeryMultiply(const Register aLimbs, const Register bLimbs, const Register rLimbs, 
-  const Register tmp_rax, const Register tmp_rdx, const Register tmp1, const Register tmp2, 
-  const Register tmp3, const Register tmp4, const Register tmp5, const Register tmp6, const Register tmp7, MacroAssembler* _masm) {
-  Register t0 = tmp1;
-  Register rscratch = tmp1;
+void montgomeryMultiply(const Register aLimbs, const Register bLimbs, const Register rLimbs, const Register tmp, MacroAssembler* _masm) {
+  Register t0 = tmp;
+  Register rscratch = tmp;
 
   // Inputs
   XMMRegister A = xmm0;
@@ -171,9 +161,8 @@ void montgomeryMultiply(const Register aLimbs, const Register bLimbs, const Regi
   XMMRegister shift1L = xmm21;
   XMMRegister shift1R = xmm22;
   XMMRegister Mask52  = xmm23;
-  KRegister limb0    = k1;
-  KRegister allLimbs = k2;
-
+  KRegister allLimbs = k1;
+  KRegister limb0    = k2;
   KRegister masks[] = {limb0, k3, k4, k5};
 
   for (int i=0; i<4; i++) {
@@ -181,8 +170,6 @@ void montgomeryMultiply(const Register aLimbs, const Register bLimbs, const Regi
     __ kmovql(masks[i], t0);
   }
 
-  // __ mov64(t0, 0x1);
-  // __ kmovql(limb0, t0);
   __ mov64(t0, 0x1f);
   __ kmovql(allLimbs, t0);
   __ evmovdquq(shift1L, allLimbs, ExternalAddress(shift_1L()), false, Assembler::AVX_512bit, rscratch);
@@ -222,8 +209,6 @@ void montgomeryMultiply(const Register aLimbs, const Register bLimbs, const Regi
       // Acc2 += M *h N
       __ evpmadd52huq(Acc2, modulus, N, Assembler::AVX_512bit);
 
-      //if (i == 4) break;
-
       // Combine high/low partial sums Acc1 + Acc2
 
       // carry = Acc1[0] >> 52
@@ -239,28 +224,6 @@ void montgomeryMultiply(const Register aLimbs, const Register bLimbs, const Regi
       __ vpaddq(Acc1, Acc1, Acc2, Assembler::AVX_512bit);
   }
 
-#if 0
-  // Last Carry round: Combine high/low partial sums Acc1<high_bits> + Acc1 + Acc2
-  // carry = Acc1 >> 52
-  __ evpsrlq(carry, allLimbs, Acc1, 52, true, Assembler::AVX_512bit);
-
-  // Acc1 = Acc1 shift one q element >>
-  __ evpermq(Acc1, allLimbs, shift1R, Acc1, false, Assembler::AVX_512bit);
-
-  // Acc1  = mask52(Acc1)
-  __ evpandq(Acc1, Acc1, Mask52, Assembler::AVX_512bit); // Clear top 12 bits
-
-  // Acc2 += carry
-  __ evpaddq(Acc2, allLimbs, carry, Acc2, true, Assembler::AVX_512bit);
-
-  // Acc1 = Acc1 + Acc2
-  __ vpaddq(Acc1, Acc1, Acc2, Assembler::AVX_512bit);
-
-  // output to rLimbs (1 + 4 limbs)
-  __ movq(Address(rLimbs, 0), Acc1);
-  __ evpermq(Acc1, k0, shift1R, Acc1, true, Assembler::AVX_512bit);
-  __ evmovdquq(Address(rLimbs, 8), k0, Acc1, true, Assembler::AVX_256bit);
-#elif 0
   // At this point the result in Acc1 needs carry propagation
   // It also can overflow by 1 Modulus. Subtract one modulus
   // then do carry propagation simultaneously on both results
@@ -298,9 +261,6 @@ void montgomeryMultiply(const Register aLimbs, const Register bLimbs, const Regi
       __ vpermq(Carry, Carry, 0b10010011, Assembler::AVX_256bit); //0b-2-1-0-3
     }
     __ vpaddq(Acc1, Acc1, Carry, Assembler::AVX_256bit);
-
-    // if (i==3) break;
-    // __ kshiftlql(limb, limb, 1); //masks[i-1]
   }
 
   // Mask
@@ -318,54 +278,6 @@ void montgomeryMultiply(const Register aLimbs, const Register bLimbs, const Regi
   // output to rLimbs (1 + 4 limbs)
   __ movq(Address(rLimbs, 0), Acc2L);
   __ evmovdquq(Address(rLimbs, 8), Acc2, Assembler::AVX_256bit);
-
-#else
-  __ vpsubq(Acc2, Acc1, modulus, Assembler::AVX_512bit);
-  __ evmovdquq(Address(rsp, -64), Acc2, Assembler::AVX_512bit);
-
-  // Carry propagate the subtraction result first (since the last carry is used 
-  // to select result)
-  Register limb[] = {tmp1, tmp2, tmp3, tmp4, tmp5};
-  Register carry = tmp7;
-  Register mask52 = tmp_rax;
-  __ mov64(mask52, P256_MASK52[0]);
-  for (int i = 0; i<5; i++) {
-    __ movq(limb[i], Address(rsp, -64+i*8));
-    if (i > 0) {
-      __ addq(limb[i], carry);
-    }
-    __ movq(carry, limb[i]);
-    if (i==4) break;
-    __ sarq(carry, 52);
-  }
-  __ sarq(carry, 63); 
-  __ notq(carry); //select
-  Register select = carry;
-  carry = tmp6;
-
-  // Now carry propagate the multiply result and (constant-time) select correct
-  // output digit
-  Register digit = tmp_rdx;
-
-  __ evmovdquq(Address(rsp, -128), Acc1, Assembler::AVX_512bit);
-  for (int i = 0; i<5; i++) {
-    __ movq(digit, Address(rsp, -128+i*8));
-    if (i>0) {
-      __ addq(digit, carry);
-    }
-    __ movq(carry, digit);
-    __ sarq(carry, 52);
-
-    // long dummyLimbs = maskValue & (a[i] ^ b[i]);
-    // a[i] = dummyLimbs ^ a[i];
-    __ xorq(limb[i], digit);
-    __ andq(limb[i], select);
-    __ xorq(digit, limb[i]);
-
-    __ andq(digit, mask52);
-    __ movq(Address(rLimbs, i*8), digit);
-  }
-#endif
 }
 
 /**
@@ -434,7 +346,6 @@ void montgomeryMultiplyAVX2(const Register aLimbs, const Register bLimbs, const 
   // Inputs
   Register    a = tmp1;
   XMMRegister A = xmm0;
-  //Register    b = tmp_rax;
   XMMRegister B = xmm1;
 
   // Intermediates
@@ -442,13 +353,11 @@ void montgomeryMultiplyAVX2(const Register aLimbs, const Register bLimbs, const 
   XMMRegister Acc1  = xmm3;
   Register    acc2  = tmp3;
   XMMRegister Acc2  = xmm4;
-  //Register    n     = tmp_rax;
   XMMRegister N     = xmm5;
   XMMRegister Carry = xmm6;
 
   // Constants
   Register    modulus   = tmp4;
-  Register    carry     = tmp4;
   XMMRegister Modulus   = xmm7;
   Register    mask52    = tmp5;
   XMMRegister Mask52    = xmm8;
@@ -476,7 +385,7 @@ void montgomeryMultiplyAVX2(const Register aLimbs, const Register bLimbs, const 
       __ vpxorq(Acc2, Acc2, Acc2, Assembler::AVX_256bit);
 
       // B = replicate(bLimbs[i])
-      __ movq(tmp_rax, Address(bLimbs, i*8)); //assert(b==rax)
+      __ movq(tmp_rax, Address(bLimbs, i*8)); //(b==rax)
       __ vpbroadcastq(B, Address(bLimbs, i*8), Assembler::AVX_256bit);
 
       // Acc1 += A * B
@@ -490,12 +399,12 @@ void montgomeryMultiplyAVX2(const Register aLimbs, const Register bLimbs, const 
         __ addq(acc1, tmp_rax);
         __ adcq(acc2, tmp_rdx);
       }
-      __ vpmadd52luq(Acc1, A, B, Assembler::AVX_256bit); // ACC1 = {ymm3,r10}
-      __ vpmadd52huq(Acc2, A, B, Assembler::AVX_256bit); // ACC2 = {ymm4,r11<<12}
+      __ vpmadd52luq(Acc1, A, B, Assembler::AVX_256bit);
+      __ vpmadd52huq(Acc2, A, B, Assembler::AVX_256bit);
 
       // N = replicate(Acc1[0])
       if  (i != 0) {
-        __ movq(tmp_rax, acc1); // assert(n==rax)
+        __ movq(tmp_rax, acc1); // (n==rax)
       }
       __ andq(tmp_rax, mask52);
       __ movq(N, acc1); // masking implicit in evpmadd52
@@ -528,102 +437,18 @@ void montgomeryMultiplyAVX2(const Register aLimbs, const Register bLimbs, const 
       __ addq(acc1, acc2);
       __ vpaddq(Acc1, Acc1, Acc2, Assembler::AVX_256bit);
   }
-#if 0
-  // Last Carry round: Combine high/low partial sums Acc1<high_bits> + Acc1 + Acc2
-  // carry = Acc1 >> 52
-  __ evpsrlq(Carry, allLimbs, Acc1, 52, true, Assembler::AVX_512bit);
-
-  // Acc1 = Acc1 shift one q element >>
-  __ evpermq(Acc1, allLimbs, shift1R, Acc1, false, Assembler::AVX_512bit);
-
-  // Acc1  = mask52(Acc1)
-  __ evpandq(Acc1, Acc1, Mask52, Assembler::AVX_512bit); // Clear top 12 bits
-
-  // Acc2 += carry
-  __ evpaddq(Acc2, allLimbs, Carry, Acc2, true, Assembler::AVX_512bit);
-
-  // Acc1 = Acc1 + Acc2
-  __ vpaddq(Acc1, Acc1, Acc2, Assembler::AVX_512bit);
-
-  // output to rLimbs (1 + 4 limbs)
-  __ movq(Address(rLimbs, 0), Acc1);
-  __ evpermq(Acc1, k0, shift1R, Acc1, true, Assembler::AVX_512bit);
-  __ evmovdquq(Address(rLimbs, 8), k0, Acc1, true, Assembler::AVX_256bit);
-#elif 0
-  // At this point the result in Acc1 needs carry propagation
-  // It also can overflow by 1 Modulus. Subtract one modulus
-  // then do carry propagation simultaneously on both results
-  // Carry out from the last limb becomes the mask to select the correct result
-
-  XMMRegister Acc1L = A;
-  XMMRegister Acc2L = B;
-  __ vpsubq(Acc2, Acc1, modulus, Assembler::AVX_512bit);
-
-  // digit 0 (Output to Acc1L & Acc2L)
-  __ evpsraq(carry, limb0, Acc2, 52, false, Assembler::AVX_256bit);
-  __ evpandq(Acc2L, limb0, Acc2, Mask52, false, Assembler::AVX_256bit);
-  __ evpermq(Acc2, allLimbs, shift1R, Acc2, false, Assembler::AVX_512bit);
-  __ vpaddq(Acc2, Acc2, carry, Assembler::AVX_256bit);
-
-  __ evpsraq(carry, limb0, Acc1, 52, false, Assembler::AVX_256bit);
-  __ evpandq(Acc1L, limb0, Acc1, Mask52, false, Assembler::AVX_256bit);
-  __ evpermq(Acc1, allLimbs, shift1R, Acc1, false, Assembler::AVX_512bit);
-  __ vpaddq(Acc1, Acc1, carry, Assembler::AVX_256bit);
-
-  KRegister limb = limb0;
-  for (int i = 1; i<4; i++) {
-    __ evpsraq(carry, masks[i-1], Acc2, 52, false, Assembler::AVX_256bit);
-    if (i == 1 || i == 3) {
-      __ vpalignr(carry, carry, carry, 8, Assembler::AVX_256bit);
-    } else {
-      __ vpermq(carry, carry, 0b10010011, Assembler::AVX_256bit);
-    }
-    __ vpaddq(Acc2, Acc2, carry, Assembler::AVX_256bit);
-
-    __ evpsraq(carry, masks[i-1], Acc1, 52, false, Assembler::AVX_256bit);
-    if (i == 1 || i == 3) {
-      __ vpalignr(carry, carry, carry, 8, Assembler::AVX_256bit);
-    } else {
-      __ vpermq(carry, carry, 0b10010011, Assembler::AVX_256bit); //0b-2-1-0-3
-    }
-    __ vpaddq(Acc1, Acc1, carry, Assembler::AVX_256bit);
-
-    // if (i==3) break;
-    // __ kshiftlql(limb, limb, 1); //masks[i-1]
-  }
-
-  // Mask
-  __ evpsraq(carry, Acc2, 64, Assembler::AVX_256bit);
-  __ vpermq(carry, carry, 0b11111111, Assembler::AVX_256bit); //0b-3-3-3-3
-  __ evpandq(Acc1, Acc1, Mask52, Assembler::AVX_256bit);
-  __ evpandq(Acc2, Acc2, Mask52, Assembler::AVX_256bit);
-
-  // Acc2 = (Acc1 & Mask) | (Acc2 & !Mask)
-  __ vpandn(Acc2L, carry, Acc2L, Assembler::AVX_256bit);
-  __ vpternlogq(Acc2L, 0xF8, carry, Acc1L, Assembler::AVX_256bit); // A | B&C orAandBC
-  __ vpandn(Acc2, carry, Acc2, Assembler::AVX_256bit);
-  __ vpternlogq(Acc2, 0xF8, carry, Acc1, Assembler::AVX_256bit);
-
-  // output to rLimbs (1 + 4 limbs)
-  __ movq(Address(rLimbs, 0), Acc2L);
-  __ evmovdquq(Address(rLimbs, 8), Acc2, Assembler::AVX_256bit);
-
-#elif 0 //WORKS!
-  {
 
   __ movq(acc2, acc1);
   __ subq(acc2, modulus);
   __ vpsubq(Acc2, Acc1, Modulus, Assembler::AVX_256bit);
   __ vmovdqu(Address(rsp, -32), Acc2); //Assembler::AVX_256bit
-  // __ vpsubq(Acc2, Acc1, Modulus, Assembler::AVX_512bit);
-  // __ evmovdquq(Address(rsp, -64), Acc2, Assembler::AVX_512bit);
 
   // Carry propagate the subtraction result first (since the last carry is used 
   // to select result)
-  Register limb[] = {acc2, tmp1, tmp7, tmp4, tmp5};
+  // acc1  = tmp2;
+  // acc2  = tmp3;
+  Register limb[] = {acc2, tmp1, tmp4, tmp5, tmp6};
   Register carry = tmp_rax;
-  Register mask52 = tmp_rdx;
-  __ mov64(mask52, P256_MASK52[0]);
   for (int i = 0; i<5; i++) {
     if (i > 0) {
       __ movq(limb[i], Address(rsp, -32-8+i*8));
@@ -636,15 +461,12 @@ void montgomeryMultiplyAVX2(const Register aLimbs, const Register bLimbs, const 
   __ sarq(carry, 63); 
   __ notq(carry); //select
   Register select = carry;
-  carry = tmp6;
+  carry = tmp7;
 
   // Now carry propagate the multiply result and (constant-time) select correct
   // output digit
   Register digit = acc1;
-
   __ vmovdqu(Address(rsp, -64), Acc1); //Assembler::AVX_256bit
-  // __ evmovdquq(Address(rsp, -128), Acc1, Assembler::AVX_512bit);
-  // limb[0] = acc1;
 
   for (int i = 0; i<5; i++) {
     if (i>0) {
@@ -663,293 +485,6 @@ void montgomeryMultiplyAVX2(const Register aLimbs, const Register bLimbs, const 
     __ andq(digit, mask52);
     __ movq(Address(rLimbs, i*8), digit);
   }
-  }
-#elif 1
-  // At this point could overflow by one modulus.
-  // Subtract one modulus, propagate carry
-  // Carry becomes (constant-time) select mask to choose one of the two results 
-  // for output
-  // Acc2 = Acc1 - M
-  XMMRegister MaskSign = A;
-  __ vmovdqu(MaskSign, ExternalAddress(p256_mask_sign()), Assembler::AVX_256bit, rscratch);
-  __ movq(acc2, acc1);
-  __ subq(acc2, modulus);
-  __ vpsubq(Acc2, Acc1, Modulus, Assembler::AVX_256bit);
-
-  // digit 0
-  __ vpxorq(Carry, Carry, Carry, Assembler::AVX_256bit);
-  __ movq(carry, acc1);
-  __ shrq(carry, 52);
-  __ movq(Carry, carry); //zeroes out top elements already??
-  __ vpaddq(Acc1, Acc1, Carry, Assembler::AVX_256bit);
-
-  __ vpxorq(Carry, Carry, Carry, Assembler::AVX_256bit);
-  __ movq(carry, acc2);
-  __ sarq(carry, 52);
-  __ movq(Carry, carry);
-  __ vpaddq(Acc2, Acc2, Carry, Assembler::AVX_256bit);
-
-  // digit 1
-  __ vpsrlq(Carry, Acc1, 52, Assembler::AVX_256bit);
-  __ vpalignr(Carry, Carry, Zero, 8, Assembler::AVX_128bit); // 0 0 C 0
-  __ vpaddq(Acc1, Acc1, Carry, Assembler::AVX_256bit);
-  
-  // __ evpsraq(Carry, Acc2, 52, Assembler::AVX_256bit);
-  __ vpsrlq(Carry, Acc2, 52, Assembler::AVX_256bit);
-  __ vpxor(Carry, Carry, MaskSign, Assembler::AVX_256bit);
-  __ vpsubq(Carry, Carry, MaskSign, Assembler::AVX_256bit);
-  __ vpalignr(Carry, Carry, Zero, 8, Assembler::AVX_128bit);
-  __ vpaddq(Acc2, Acc2, Carry, Assembler::AVX_256bit);
-
-  // digit 2
-  __ vpsrlq(Carry, Acc1, 52, Assembler::AVX_256bit);
-  __ vinserti128(Carry, Zero, Carry, 1);//, Assembler::AVX_256bit); // C1 C0 0 0
-  __ vpalignr(Carry, Zero, Carry, 8, Assembler::AVX_256bit);    //  0 C1 0 0
-  __ vpaddq(Acc1, Acc1, Carry, Assembler::AVX_256bit);
-  
-  // __ evpsraq(Carry, Acc2, 52, Assembler::AVX_256bit);
-  __ vpsrlq(Carry, Acc2, 52, Assembler::AVX_256bit);
-  __ vpxor(Carry, Carry, MaskSign, Assembler::AVX_256bit);
-  __ vpsubq(Carry, Carry, MaskSign, Assembler::AVX_256bit);
-  __ vinserti128(Carry, Zero, Carry, 1);//, Assembler::AVX_256bit);
-  __ vpalignr(Carry, Zero, Carry, 8, Assembler::AVX_256bit);
-  __ vpaddq(Acc2, Acc2, Carry, Assembler::AVX_256bit);
-
-  // digit 3
-  __ vpsrlq(Carry, Acc1, 52, Assembler::AVX_256bit);
-  __ vpalignr(Carry, Carry, Zero, 8, Assembler::AVX_256bit); // C2 0 C0 0
-  __ vinserti128(Carry, Carry, Zero, 0);//, Assembler::AVX_256bit); // C1 C0 0 0  // AND cheaper
-  // __ vpalignr(Carry, Zero, Carry, 8, Assembler::AVX_128bit); // C2 0  0 0
-  __ vpaddq(Acc1, Acc1, Carry, Assembler::AVX_256bit);
-  
-  // __ evpsraq(Carry, Acc2, 52, Assembler::AVX_256bit);
-  __ vpsrlq(Carry, Acc2, 52, Assembler::AVX_256bit);
-  __ vpxor(Carry, Carry, MaskSign, Assembler::AVX_256bit);
-  __ vpsubq(Carry, Carry, MaskSign, Assembler::AVX_256bit);
-  __ vpalignr(Carry, Carry, Zero, 8, Assembler::AVX_256bit);
-  __ vinserti128(Carry, Carry, Zero, 0);//, Assembler::AVX_256bit); // C1 C0 0 0  // AND cheaper
-  // __ vpalignr(Carry, Zero, Carry, 8, Assembler::AVX_128bit);
-  __ vpaddq(Acc2, Acc2, Carry, Assembler::AVX_256bit);
-
-  // Mask
-  __ vpcmpgtq(Carry, Zero, Acc2, Assembler::AVX_256bit);
-  __ vpermq(Carry, Carry, 0b11111111, Assembler::AVX_256bit); //0b-3-3-3-3
-  __ movq(carry, Carry);
-  // __ evpsraq(Carry, Acc2, 64, Assembler::AVX_256bit);
-  // __ vextracti128() // high to low
-  // __ vpextrq(carry, Carry, 4); //??? 
-  // __ vpalignr(Carry, Zero, Carry, 8, Assembler::AVX_128bit);
-  // __ vpbroadcastq(Carry, Carry, Assembler::AVX_256bit);
-  
-  // Acc1 = (Acc1 & Mask) | (Acc2 & !Mask)
-  __ vpand(Acc1,  Carry, Acc1, Assembler::AVX_256bit);
-  __ vpandn(Acc2, Carry, Acc2, Assembler::AVX_256bit);
-  __ vpor(Acc1,   Acc1,  Acc2, Assembler::AVX_256bit);
-  __ andq(acc1, carry);
-  __ andnq(acc2, carry, acc2);
-  __ orq(acc1, acc2);
-
-  __ andq(acc1, mask52);
-  __ vpand(Acc1, Acc1, Mask52, Assembler::AVX_256bit);
-
-  // output to rLimbs (1 + 4 limbs)
-  __ movq(Address(rLimbs, 0), acc1);
-  __ vmovdqu(Address(rLimbs, 8), Acc1); //Assembler::AVX_256bit
-#endif
-}
-
-void montgomeryMultiplyAVX22(const Register aLimbs, const Register bLimbs, const Register rLimbs, 
-  const Register tmp_rax, const Register tmp_rdx, const Register tmp1, const Register tmp2, 
-  const Register tmp3, const Register tmp4, const Register tmp5, MacroAssembler* _masm) {
-  Register rscratch = tmp1;
-
-  XMMRegister Al = xmm0; // 4 3 2 1
-  XMMRegister Ah = xmm1; // 5 4 3 2
-  XMMRegister al = xmm2; // 0 0 0 1
-  XMMRegister ah = xmm3; // 5 0 0 0
-  XMMRegister Ml = xmm4; // 4 3 2 1
-  XMMRegister Mh = xmm5; // 5 4 3 2
-  XMMRegister ml = xmm6; // 0 0 0 1
-  XMMRegister mh = xmm7; // 5 0 0 0
-  XMMRegister mask52 = xmm8;
-  XMMRegister B = xmm9;
-  XMMRegister N = xmm10;
-  XMMRegister Acc1 = xmm11;
-  XMMRegister Acc2 = xmm12;
-  XMMRegister Acc3 = xmm13;
-  XMMRegister Acc4 = xmm14;
-  XMMRegister zero = xmm15;
-
-  __ vpxor(zero, zero, zero, Assembler::AVX_256bit);
-
-  // M = load(*modulus_p256)
-  __ vmovdqu(Ml, ExternalAddress(modulus_p256(0)), Assembler::AVX_256bit, rscratch);
-  __ vmovdqu(Mh, ExternalAddress(modulus_p256(1)), Assembler::AVX_256bit, rscratch);
-
-  // A = load(*aLimbs);
-  __ vmovdqu(Al, Address(bLimbs, 0));
-  __ vmovdqu(Ah, Address(bLimbs, 8)); //Assembler::AVX_256bit
-  
-  // and masked versions
-  __ vpblendd(ah, zero, Ah, 0b11000000, Assembler::AVX_256bit);
-  __ vpblendd(mh, zero, Mh, 0b11000000, Assembler::AVX_256bit);
-  __ vpblendd(al, zero, Al, 0b00000011, Assembler::AVX_256bit);
-  __ vpblendd(ml, zero, Ml, 0b00000011, Assembler::AVX_256bit);
-
-  // Acc1 = Acc2 = 0
-  __ vpxor(Acc1, Acc1, Acc1, Assembler::AVX_256bit);
-  __ vpxor(Acc2, Acc2, Acc2, Assembler::AVX_256bit);
-  for (int i = 0; i< 5; i+=2) {
-      __ vpxor(Acc3, Acc3, Acc3, Assembler::AVX_256bit);
-      __ vpxor(Acc4, Acc4, Acc4, Assembler::AVX_256bit);
-
-      // B = replicate(bLimbs[i])
-      __ vpbroadcastq(B, Address(aLimbs, i*8), Assembler::AVX_256bit);
-
-      // Acc1 += A * B
-      // Acc2 += A *h B
-      //     0 0 0 x  - Acc1
-      //   x x x x    - Acc2
-      __ vpmadd52luq(Acc1, al, B, Assembler::AVX_256bit);
-      __ vpmadd52huq(Acc2, al, B, Assembler::AVX_256bit);
-      __ vpmadd52luq(Acc3, Ah, B, Assembler::AVX_256bit);
-      __ vpmadd52huq(Acc4, Ah, B, Assembler::AVX_256bit);
-
-      // N = replicate(Acc1[0])
-      __ vpbroadcastq(N, Acc1, Assembler::AVX_256bit); // masking implicit in evpmadd52
-
-      // Acc1 += M *  N
-      // Acc2 += M *h N
-      __ vpmadd52luq(Acc1, ml, N, Assembler::AVX_256bit);
-      __ vpmadd52huq(Acc2, ml, N, Assembler::AVX_256bit);
-      __ vpmadd52luq(Acc3, Mh, N, Assembler::AVX_256bit);
-      __ vpmadd52huq(Acc4, Mh, N, Assembler::AVX_256bit);
-
-      // Acc1 = Acc1[0] >> 52
-      // Acc2[0] += carry
-      __ vpsrlq(Acc1, Acc1, 52, Assembler::AVX_256bit);
-      __ vpaddq(Acc3, Acc3, Acc2, Assembler::AVX_256bit);
-      __ vpaddq(Acc3, Acc3, Acc1, Assembler::AVX_256bit);
-
-      //     x x x x  - Acc3
-      //   x x x x    - Acc4
-      if (i>=4) break;
-
-      // B = replicate(bLimbs[i+1])
-      __ vpxor(Acc1, Acc1, Acc1, Assembler::AVX_256bit);
-      __ vpxor(Acc2, Acc2, Acc2, Assembler::AVX_256bit);
-      __ vpbroadcastq(B, Address(aLimbs, i*8+8), Assembler::AVX_256bit);
-
-      // Acc1 += A * B
-      // Acc2 += A *h B
-      __ vpmadd52luq(Acc3, Al, B, Assembler::AVX_256bit);
-      __ vpmadd52huq(Acc4, Al, B, Assembler::AVX_256bit);
-      __ vpmadd52luq(Acc1, ah, B, Assembler::AVX_256bit);
-      __ vpmadd52huq(Acc2, ah, B, Assembler::AVX_256bit);
-
-      // N = replicate(Acc1[0])
-      __ vpbroadcastq(N, Acc3, Assembler::AVX_256bit); // masking implicit in evpmadd52
-
-      // Acc1 += M *  N
-      // Acc2 += M *h N
-      __ vpmadd52luq(Acc3, Ml, N, Assembler::AVX_256bit);
-      __ vpmadd52huq(Acc4, Ml, N, Assembler::AVX_256bit);
-      __ vpmadd52luq(Acc1, mh, N, Assembler::AVX_256bit);
-      __ vpmadd52huq(Acc2, mh, N, Assembler::AVX_256bit);
-
-      //     x x x x  - Acc3
-      //   x x x x    - Acc4
-      //   x 0 0 0    - Acc1
-      // x 0 0 0      - Acc2
-      __ vpaddq(Acc1, Acc4, Acc1, Assembler::AVX_256bit);
-
-      //     x x x x  - Acc3
-      //   x x x x    - Acc1
-      // x 0 0 0      - Acc2
-      __ vpermq(Acc4, Acc1, 0b11111001, Assembler::AVX_256bit);
-      __ vpblendd(Acc2, Acc2, Acc4, 0b00111111, Assembler::AVX_256bit);
-      __ vextracti128(Acc4, Acc3, 1);
-      __ vpaddq(Acc2, Acc2, Acc4, Assembler::AVX_256bit);
-
-      //     ? ? x x  - Acc3
-      //   ? ? ? x    - Acc1
-      // x x x x      - Acc2
-      __ vpalignr(Acc4, Acc3, Acc3, 8, Assembler::AVX_256bit);
-      __ vpsrlq(Acc3, Acc3, 52, Assembler::AVX_256bit);
-      __ vpaddq(Acc3, Acc4, Acc3, Assembler::AVX_256bit);
-      __ vpaddq(Acc1, Acc1, Acc3, Assembler::AVX_256bit);
-      __ vpblendd(Acc1, zero, Acc1, 0b00000011, Assembler::AVX_256bit);
-      //   0 0 0 x    - Acc1
-      // x x x x      - Acc2
-  }
-
-  XMMRegister Carry1 = Al;
-  XMMRegister Carry2 = Ah;
-  XMMRegister MaskSign = al;
-  __ vmovdqu(mask52, ExternalAddress(p256_mask52()), Assembler::AVX_256bit, rscratch);
-  __ vmovdqu(MaskSign, ExternalAddress(p256_mask_sign()), Assembler::AVX_256bit, rscratch);
-
-  //     x x x x  - Acc3
-  //   x x x x    - Acc4
-  __ vpermq(Acc1, Acc3, 0b11111001, Assembler::AVX_256bit); //0b-3-3-2-1
-  __ vpblendd(Acc3, zero, Acc3, 0b00000011, Assembler::AVX_256bit);
-  __ vpblendd(Acc1, zero, Acc1, 0b00111111, Assembler::AVX_256bit);
-  __ vpaddq(Acc4, Acc1, Acc4, Assembler::AVX_256bit);
-
-  //     0 0 0 x  - Acc3
-  //   x x x x    - Acc4
-  __ vpsubq(Acc1, Acc3, ml, Assembler::AVX_256bit);
-  __ vpsubq(Acc2, Acc4, Mh, Assembler::AVX_256bit);
-
-  // carry propagation
-  // digit 0
-  //__ vpsraq(Carry1, Acc1, 52, Assembler::AVX_256bit);
-  __ vpsrlq(Carry1, Acc1, 52, Assembler::AVX_256bit);
-  __ vpxor(Carry1, Carry1, MaskSign, Assembler::AVX_256bit);
-  __ vpsubq(Carry1, Carry1, MaskSign, Assembler::AVX_256bit);
-  __ vpsrlq(Carry2, Acc3, 52, Assembler::AVX_256bit);
-  __ vpaddq(Acc2, Carry1, Acc2, Assembler::AVX_256bit);
-  __ vpaddq(Acc4, Carry2, Acc4, Assembler::AVX_256bit);
-
-  for (int i = 0; i<6; i+=2) {
-    __ vpblendd(Carry1, zero, Acc2, 0b11<<i, Assembler::AVX_256bit);
-    __ vpblendd(Carry2, zero, Acc4, 0b11<<i, Assembler::AVX_256bit);
-    // __ vpsraq(Carry1, Carry1, 52, Assembler::AVX_256bit);
-    __ vpsrlq(Carry1, Carry1, 52, Assembler::AVX_256bit);
-    __ vpxor(Carry1, Carry1, MaskSign, Assembler::AVX_256bit);
-    __ vpsubq(Carry1, Carry1, MaskSign, Assembler::AVX_256bit);
-    __ vpsrlq(Carry2, Carry2, 52, Assembler::AVX_256bit);
-    if (i == 0 || i == 4) {
-      __ vpalignr(Carry1, Carry1, Carry1, 8, Assembler::AVX_256bit);
-      __ vpalignr(Carry2, Carry2, Carry2, 8, Assembler::AVX_256bit);
-    } else {
-      __ vpermq(Carry1, Carry1, 0b10010011, Assembler::AVX_256bit); //0b-2-1-0-3
-      __ vpermq(Carry2, Carry2, 0b10010011, Assembler::AVX_256bit);
-    }
-    __ vpaddq(Acc2, Carry1, Acc2, Assembler::AVX_256bit);
-    __ vpaddq(Acc4, Carry2, Acc4, Assembler::AVX_256bit);
-  }
-
-  // Mask
-  // __ vpsraq(Carry1, Acc2, 64, Assembler::AVX_256bit);
-  __ vpcmpgtq(Carry1, zero, Acc2, Assembler::AVX_256bit);
-  __ vpermq(Carry1, Carry1, 0b11111111, Assembler::AVX_256bit); //0b-3-3-3-3
-  __ vpand(Acc1, Acc1, mask52, Assembler::AVX_256bit);
-  __ vpand(Acc2, Acc2, mask52, Assembler::AVX_256bit);
-  __ vpand(Acc3, Acc3, mask52, Assembler::AVX_256bit);
-  __ vpand(Acc4, Acc4, mask52, Assembler::AVX_256bit);
-
-  // Acc2 = (Acc1 & Mask) | (Acc2 & !Mask)
-  __ vpandn(Acc1, Carry1, Acc1, Assembler::AVX_256bit);
-  __ vpand(Acc3, Carry1, Acc3, Assembler::AVX_256bit);
-  __ vpor(Acc1, Acc1, Acc3, Assembler::AVX_256bit);
-  __ vpandn(Acc2, Carry1, Acc2, Assembler::AVX_256bit);
-  __ vpand(Acc4, Carry1, Acc4, Assembler::AVX_256bit);
-  __ vpor(Acc2, Acc2, Acc4, Assembler::AVX_256bit);
-
-  // output to rLimbs (1 + 4 limbs)
-  __ movq(Address(rLimbs, 0), Acc1);
-  __ vmovdqu(Address(rLimbs, 8), Acc2); //Assembler::AVX_256bit
 }
 
 address StubGenerator::generate_intpoly_montgomeryMult_P256() {
@@ -988,58 +523,22 @@ address StubGenerator::generate_intpoly_montgomeryMult_P256() {
     montgomeryMultiplyAVX2(aLimbs, bLimbs, rLimbs, rax, rdx, 
                            tmp1, tmp2, tmp3, tmp4, tmp5, tmp6, tmp7, _masm);
     #ifdef _WIN64
-    __ pop(rsi);
     __ pop(rdi);
+    __ pop(rsi);
     #endif
     __ pop(r14);
     __ pop(r13);
     __ pop(r12);
   } else {
     // Register Map
-    // const Register aLimbs  = c_rarg0; // rdi | rcx
-    // const Register bLimbs  = c_rarg1; // rsi | rdx
-    // const Register rLimbs  = c_rarg2; // rdx | r8
-    // const Register tmp     = r9;
+    const Register aLimbs  = c_rarg0; // rdi | rcx
+    const Register bLimbs  = c_rarg1; // rsi | rdx
+    const Register rLimbs  = c_rarg2; // rdx | r8
+    const Register tmp     = r9;
 
-    __ push(r12);
-    __ push(r13);
-    __ push(r14);
-    #ifdef _WIN64
-    __ push(rsi);
-    __ push(rdi);
-    #endif
-
-    // Register Map
-    const Register aLimbs  = c_rarg0; // c_rarg0: rdi | rcx
-    const Register bLimbs  = rsi;     // c_rarg1: rsi | rdx
-    const Register rLimbs  = r8;      // c_rarg2: rdx | r8
-    const Register tmp1    = r9;
-    const Register tmp2    = r10;
-    const Register tmp3    = r11;
-    const Register tmp4    = r12;
-    const Register tmp5    = r13;
-    const Register tmp6    = r14;
-    #ifdef _WIN64
-    const Register tmp7    = rdi;
-    __ movq(bLimbs, c_rarg1); // free-up rdx
-    #else
-    const Register tmp7    = rcx;
-    __ movq(rLimbs, c_rarg2); // free-up rdx
-    #endif
-    montgomeryMultiply(aLimbs, bLimbs, rLimbs, rax, rdx, 
-                           tmp1, tmp2, tmp3, tmp4, tmp5, tmp6, tmp7, _masm);
-    
-    #ifdef _WIN64
-    __ pop(rsi);
-    __ pop(rdi);
-    #endif
-    __ pop(r14);
-    __ pop(r13);
-    __ pop(r12);
+    montgomeryMultiply(aLimbs, bLimbs, rLimbs, tmp, _masm);
   }
 
-  // __ movq(rax, 0x1); // Return 1 (Fig. 5, Step 6 [1] skipped in montgomeryMultiply)
-  //__ movq(rax, 0x0); // Return 1 (Fig. 5, Step 6 [1] skipped in montgomeryMultiply)
   __ leave();
   __ ret(0);
   return start;
@@ -1049,16 +548,8 @@ address StubGenerator::generate_intpoly_montgomeryMult_P256() {
 // Must be:
 //  - constant time (i.e. no branches)
 //  - no-side channel (i.e. all memory must always be accessed, and in same order)
-// void assign_avx(XMMRegister A, Address aAddr, XMMRegister B, Address bAddr, KRegister select, int vector_len, MacroAssembler* _masm) {
-//   __ evmovdquq(A, aAddr, vector_len);
-//   __ evmovdquq(B, bAddr, vector_len);
-//   __ evmovdquq(A, select, B, true, vector_len);
-//   __ evmovdquq(aAddr, A, vector_len);
-// }
-
-
 void assign_avx(Register aBase, Register bBase, int offset, XMMRegister select, XMMRegister tmp, XMMRegister aTmp, int vector_len, MacroAssembler* _masm) {
-  if (vector_len == Assembler::AVX_512bit) { //} && UseAVX >= 2) {
+  if (vector_len == Assembler::AVX_512bit) {
     assign_avx(aBase, bBase, offset,      select, tmp, aTmp, Assembler::AVX_256bit, _masm);
     assign_avx(aBase, bBase, offset + 32, select, tmp, aTmp, Assembler::AVX_256bit, _masm);
     return;
@@ -1088,17 +579,6 @@ void assign_scalar(Register aBase, Register bBase, int offset, Register select, 
   __ andq(tmp, select);
   __ xorq(aAddr, tmp);
 }
-
-// void assign_scalar(Address aAddr, Address bAddr, Register select, Register tmp, MacroAssembler* _masm) {
-//   // Original java:
-//   // long dummyLimbs = maskValue & (a[i] ^ b[i]);
-//   // a[i] = dummyLimbs ^ a[i];
-
-//   __ vmovdqu(tmp, aAddr);
-//   __ xorq(tmp, bAddr);
-//   __ andq(tmp, select);
-//   __ xorq(aAddr, tmp);
-// }
 
 address StubGenerator::generate_intpoly_assign() {
   // KNOWN Lengths:
@@ -1133,19 +613,15 @@ address StubGenerator::generate_intpoly_assign() {
   XMMRegister select = xmm2;
 
   Register tmp = r9;
-  // KRegister select = k1;
   Label L_Length5, L_Length10, L_Length14, L_Length16, L_Length19, L_DefaultLoop, L_Done;
 
   __ negq(set);
-  if (false && UseAVX > 2) {
+  if (UseAVX > 2) {
     __ evpbroadcastq(select, set, Assembler::AVX_512bit);
   } else {
     __ movq(select, set);
     __ vpbroadcastq(select, select, Assembler::AVX_256bit);
   }
-
-  // 
-  // __ kmovql(select, set);
 
   // NOTE! Crypto code cannot branch on user input. However; allowed to branch on number of limbs;
   // Number of limbs is a constant in each IntegerPolynomial (i.e. this side-channel branch leaks
@@ -1175,7 +651,7 @@ address StubGenerator::generate_intpoly_assign() {
 
   __ bind(L_Length5); // 1 + 4
   assign_scalar(aLimbs, bLimbs, 0, set, tmp, _masm);
-  assign_avx(aLimbs, bLimbs, 8, select, A, B, Assembler::AVX_256bit, _masm);
+  assign_avx   (aLimbs, bLimbs, 8, select, A, B, Assembler::AVX_256bit, _masm);
   __ jmp(L_Done);
 
   __ bind(L_Length10); // 2 + 8
@@ -1195,10 +671,10 @@ address StubGenerator::generate_intpoly_assign() {
   __ jmp(L_Done);
 
   __ bind(L_Length19); // 1 + 2 + 8 + 8
-  assign_scalar(aLimbs, bLimbs, 0, set, tmp, _masm);
-  assign_avx(aLimbs, bLimbs,   8, select, A, B, Assembler::AVX_128bit, _masm);
-  assign_avx(aLimbs, bLimbs,  24, select, A, B, Assembler::AVX_512bit, _masm);
-  assign_avx(aLimbs, bLimbs,  88, select, A, B, Assembler::AVX_512bit, _masm);
+  assign_scalar(aLimbs, bLimbs,  0, set, tmp, _masm);
+  assign_avx   (aLimbs, bLimbs,  8, select, A, B, Assembler::AVX_128bit, _masm);
+  assign_avx   (aLimbs, bLimbs, 24, select, A, B, Assembler::AVX_512bit, _masm);
+  assign_avx   (aLimbs, bLimbs, 88, select, A, B, Assembler::AVX_512bit, _masm);
 
   __ bind(L_Done);
   __ leave();

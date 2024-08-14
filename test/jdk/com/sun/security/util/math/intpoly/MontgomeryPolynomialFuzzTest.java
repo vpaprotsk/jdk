@@ -88,8 +88,6 @@ public class MontgomeryPolynomialFuzzTest {
         aRef = aRef.multiply(r).mod(P);
         check(aRef, a, seed);
 
-        //if (true) return;
-
         ImmutableIntegerModuloP b = montField.getElement(bRef);
         bRef = bRef.multiply(r).mod(P);
         check(bRef, b, seed);
