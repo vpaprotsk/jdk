@@ -122,7 +122,6 @@ static address mask_limb5() {
  *                                                   *h| 0| 0| 0|m5|m4|m3|m2|m1|
  *          Acc2 += M *h N                             |n0|n0|n0|n0|n0|n0|n0|n0|
  *                                                     +--+--+--+--+--+--+--+--+
- *          if (i == 4) break;
  *          // Combine high/low partial sums Acc1 + Acc2
  *                                                     +--+--+--+--+--+--+--+--+
  *          carry = Acc1[0] >> 52                      | 0| 0| 0| 0| 0| 0| 0|c1|
@@ -133,13 +132,10 @@ static address mask_limb5() {
  *                                                     +--+--+--+--+--+--+--+--+
  *          Acc1 = Acc1 + Acc2
  *      ---- done
- *   // Last Carry round: Combine high/low partial sums Acc1<high_bits> + Acc1 + Acc2
- *   carry = Acc1 >> 52
- *   Acc1 = Acc1 shift one q element >>
- *   Acc1  = mask52(Acc1)
- *   Acc2  += carry
- *   Acc1 = Acc1 + Acc2
- *   output to rLimbs
+ * 
+ * At this point the result in Acc1 can overflow by 1 Modulus and needs carry
+ * propagation. Subtract one modulus, carry-propagate both results and select
+ * (constant-time) the positive number of the two
  */
 void montgomeryMultiply(const Register aLimbs, const Register bLimbs, const Register rLimbs, const Register tmp, MacroAssembler* _masm) {
   Register t0 = tmp;
@@ -166,7 +162,7 @@ void montgomeryMultiply(const Register aLimbs, const Register bLimbs, const Regi
   KRegister masks[] = {limb0, k3, k4, k5};
 
   for (int i=0; i<4; i++) {
-    __ mov64(t0, 1<<i);
+    __ mov64(t0, 1ULL<<i);
     __ kmovql(masks[i], t0);
   }
 
@@ -330,13 +326,10 @@ void montgomeryMultiply(const Register aLimbs, const Register bLimbs, const Regi
  *                                                     +--+--+--+--+  +--+
  *          Acc1 = Acc1 + Acc2
  *      ---- done
- *   // Last Carry round: Combine high/low partial sums Acc1<high_bits> + Acc1 + Acc2
- *   carry = Acc1 >> 52
- *   Acc1 = Acc1 shift one q element >>
- *   Acc1  = mask52(Acc1)
- *   Acc2  += carry
- *   Acc1 = Acc1 + Acc2
- *   output to rLimbs
+ * 
+ * At this point the result in Acc1 can overflow by 1 Modulus and needs carry
+ * propagation. Subtract one modulus, carry-propagate both results and select
+ * (constant-time) the positive number of the two
  */
 void montgomeryMultiplyAVX2(const Register aLimbs, const Register bLimbs, const Register rLimbs, 
   const Register tmp_rax, const Register tmp_rdx, const Register tmp1, const Register tmp2, 
