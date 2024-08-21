@@ -124,6 +124,9 @@ public final class IntegerPolynomial1305 extends IntegerPolynomial {
         carryReduce(r, c0, c1, c2, c3, c4, c5, c6, c7, c8);
     }
 
+    protected int reduceNegative(long[] a, int numAdds) { return numAdds;}
+    protected int reducePositive(long[] a, int numAdds) { return numAdds;}
+
     @Override
     protected void encode(ByteBuffer buf, int length, byte highByte,
                           long[] result) {

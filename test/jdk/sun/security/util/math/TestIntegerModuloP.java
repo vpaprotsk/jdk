@@ -51,6 +51,13 @@
  * @run main TestIntegerModuloP sun.security.util.math.intpoly.IntegerPolynomialP256 32 5
  */
 
+/*
+ * @test id=MontgomeryIntegerPolynomialP256
+ * @modules java.base/sun.security.util java.base/sun.security.util.math java.base/sun.security.util.math.intpoly
+ * @build BigIntegerModuloP
+ * @run main TestIntegerModuloP sun.security.util.math.intpoly.IntegerPolynomialP256 32 5
+ */
+
  /*
  * @test id=IntegerPolynomialP384
  * @modules java.base/sun.security.util java.base/sun.security.util.math java.base/sun.security.util.math.intpoly
