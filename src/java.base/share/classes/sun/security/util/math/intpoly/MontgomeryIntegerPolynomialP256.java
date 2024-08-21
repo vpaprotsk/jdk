@@ -126,7 +126,7 @@ public final class MontgomeryIntegerPolynomialP256 extends IntegerPolynomial
      */
     @Override
     protected void multByInt(long[] a, long b) {
-        assert (b < (1 << BITS_PER_LIMB));
+        assert (b < (1L << BITS_PER_LIMB));
         if (b == 2) {
             for (int i = 0; i < NUM_LIMBS; i++) {
                 a[i] <<= 1;
