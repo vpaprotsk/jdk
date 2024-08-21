@@ -115,6 +115,44 @@ public final class MontgomeryIntegerPolynomialP256 extends IntegerPolynomial
         return super.getSmallValue(value);
     }
 
+    /*
+     * This function is used by IntegerPolynomial.setProduct(SmallValue v) to
+     * multiply by a small constant (i.e. (int) 1,2,3,4). Instead of doing a
+     * montgomery conversion followed by a montgomery multiplication, just use
+     * the spare top (64-BITS_PER_LIMB) bits to multiply by a constant. (See [1]
+     * Section 4 )
+     *
+     * Will return an unreduced value
+     */
+    @Override
+    protected void multByInt(long[] a, long b) {
+        assert (b < (1 << BITS_PER_LIMB));
+        if (b == 2) {
+            for (int i = 0; i < NUM_LIMBS; i++) {
+                a[i] <<= 1;
+            }
+            reducePositive(a, 1);
+        } else if (b == 3) {
+            for (int i = 0; i < NUM_LIMBS; i++) {
+                a[i] *= 3;
+            }
+            reducePositive(a, 1);
+            reducePositive(a, 1);
+        } else if (b == 4) {
+            for (int i = 0; i < NUM_LIMBS; i++) {
+                a[i] <<= 2;
+            }
+            reducePositive(a, 1);
+            reducePositive(a, 1);
+            reducePositive(a, 1);
+        } else {
+            for (int i = 0; i < NUM_LIMBS; i++) {
+                a[i] *= b;
+            }
+            reduce(a);
+        }
+    }
+
     @Override
     public ImmutableIntegerModuloP fromMontgomery(ImmutableIntegerModuloP n) {
         assert n.getField() == MontgomeryIntegerPolynomialP256.ONE;
@@ -125,7 +163,6 @@ public final class MontgomeryIntegerPolynomialP256 extends IntegerPolynomial
         long[] limbs = nn.getLimbs();
         reduce(limbs);
         MontgomeryIntegerPolynomialP256.ONE.mult(limbs, oneActual, r1);
-        reduce(r1);
         halfLimbs(r1, r2);
         return IntegerPolynomialP256.ONE.new ImmutableElement(r2, 0);
     }
@@ -150,7 +187,6 @@ public final class MontgomeryIntegerPolynomialP256 extends IntegerPolynomial
         mult(a, a, r);
     }
 
-
     /**
      * Unrolled Word-by-Word Montgomery Multiplication r = a * b * 2^-260 (mod P)
      *
@@ -161,7 +197,7 @@ public final class MontgomeryIntegerPolynomialP256 extends IntegerPolynomial
     @Override
     protected void mult(long[] a, long[] b, long[] r) {
         multImpl(a, b, r);
-        reducePositive(r);
+        reducePositive(r, 1);
     }
 
     @ForceInline
@@ -399,16 +435,82 @@ public final class MontgomeryIntegerPolynomialP256 extends IntegerPolynomial
         d4 += n4 & LIMB_MASK;
 
         c5 += d1 + dd0 + (d0 >>> BITS_PER_LIMB);
-        c6 += d2 + dd1;
-        c7 += d3 + dd2;
-        c8 += d4 + dd3;
-        c9 = dd4;
+        c6 += d2 + dd1 + (c5 >>> BITS_PER_LIMB);
+        c7 += d3 + dd2 + (c6 >>> BITS_PER_LIMB);
+        c8 += d4 + dd3 + (c7 >>> BITS_PER_LIMB);
+        c9 = dd4 + (c8 >>> BITS_PER_LIMB);
 
-        r[0] = c5;
-        r[1] = c6;
-        r[2] = c7;
-        r[3] = c8;
-        r[4] = c9;
+        c5 &= LIMB_MASK;
+        c6 &= LIMB_MASK;
+        c7 &= LIMB_MASK;
+        c8 &= LIMB_MASK;
+
+        // At this point, the result could overflow by one modulus.
+        c0 = c5 - modulus[0];
+        c1 = c6 - modulus[1] + (c0 >> BITS_PER_LIMB);
+        c0 &= LIMB_MASK;
+        c2 = c7 - modulus[2] + (c1 >> BITS_PER_LIMB);
+        c1 &= LIMB_MASK;
+        c3 = c8 - modulus[3] + (c2 >> BITS_PER_LIMB);
+        c2 &= LIMB_MASK;
+        c4 = c9 - modulus[4] + (c3 >> BITS_PER_LIMB);
+        c3 &= LIMB_MASK;
+
+        long mask = c4 >> BITS_PER_LIMB; // Signed shift!
+
+        r[0] = ((c5 & mask) | (c0 & ~mask));
+        r[1] = ((c6 & mask) | (c1 & ~mask));
+        r[2] = ((c7 & mask) | (c2 & ~mask));
+        r[3] = ((c8 & mask) | (c3 & ~mask));
+        r[4] = ((c9 & mask) | (c4 & ~mask));
+    }
+
+    @Override
+    protected int reducePositive(long[] a, int numAdds) {
+        // The result could overflow by one modulus.
+        long aa0 = a[0];
+        long aa1 = a[1] + (aa0>>BITS_PER_LIMB);
+        long aa2 = a[2] + (aa1>>BITS_PER_LIMB);
+        long aa3 = a[3] + (aa2>>BITS_PER_LIMB);
+        long aa4 = a[4] + (aa3>>BITS_PER_LIMB);
+
+        long c0 = a[0] - modulus[0];
+        long c1 = a[1] - modulus[1] + (c0 >> BITS_PER_LIMB);
+        long c2 = a[2] - modulus[2] + (c1 >> BITS_PER_LIMB);
+        long c3 = a[3] - modulus[3] + (c2 >> BITS_PER_LIMB);
+        long c4 = a[4] - modulus[4] + (c3 >> BITS_PER_LIMB);
+        long mask = c4 >> BITS_PER_LIMB; // Signed shift!
+
+        a[0] = ((aa0 & mask) | (c0 & ~mask)) & LIMB_MASK;
+        a[1] = ((aa1 & mask) | (c1 & ~mask)) & LIMB_MASK;
+        a[2] = ((aa2 & mask) | (c2 & ~mask)) & LIMB_MASK;
+        a[3] = ((aa3 & mask) | (c3 & ~mask)) & LIMB_MASK;
+        a[4] = ((aa4 & mask) | (c4 & ~mask));
+        return numAdds-1;
+    }
+
+    @Override
+    protected int reduceNegative(long[] a, int numAdds) {
+        // The result could underflow by one modulus.
+        long aa0 = a[0];
+        long aa1 = a[1] + (aa0>>BITS_PER_LIMB);
+        long aa2 = a[2] + (aa1>>BITS_PER_LIMB);
+        long aa3 = a[3] + (aa2>>BITS_PER_LIMB);
+        long aa4 = a[4] + (aa3>>BITS_PER_LIMB);
+
+        long c0 = a[0] + modulus[0];
+        long c1 = a[1] + modulus[1] + (c0 >> BITS_PER_LIMB);
+        long c2 = a[2] + modulus[2] + (c1 >> BITS_PER_LIMB);
+        long c3 = a[3] + modulus[3] + (c2 >> BITS_PER_LIMB);
+        long c4 = a[4] + modulus[4] + (c3 >> BITS_PER_LIMB);
+        long mask = aa4 >> BITS_PER_LIMB; // Signed shift!
+
+        a[0] = ((aa0 & ~mask) | (c0 & mask)) & LIMB_MASK;
+        a[1] = ((aa1 & ~mask) | (c1 & mask)) & LIMB_MASK;
+        a[2] = ((aa2 & ~mask) | (c2 & mask)) & LIMB_MASK;
+        a[3] = ((aa3 & ~mask) | (c3 & mask)) & LIMB_MASK;
+        a[4] = ((aa4 & ~mask) | (c4 & mask));
+        return numAdds-1;
     }
 
     @Override
@@ -526,28 +628,5 @@ public final class MontgomeryIntegerPolynomialP256 extends IntegerPolynomial
         // 2^(52i-4*52-48)
         limbs[i - 5] += (v << 4) & LIMB_MASK;
         limbs[i - 4] += v >> 48;
-    }
-
-    // Used when limbs a could overflow by one modulus.
-    @ForceInline
-    protected void reducePositive(long[] a) {
-        long aa0 = a[0];
-        long aa1 = a[1] + (aa0>>BITS_PER_LIMB);
-        long aa2 = a[2] + (aa1>>BITS_PER_LIMB);
-        long aa3 = a[3] + (aa2>>BITS_PER_LIMB);
-        long aa4 = a[4] + (aa3>>BITS_PER_LIMB);
-
-        long c0 = a[0] - modulus[0];
-        long c1 = a[1] - modulus[1] + (c0 >> BITS_PER_LIMB);
-        long c2 = a[2] - modulus[2] + (c1 >> BITS_PER_LIMB);
-        long c3 = a[3] - modulus[3] + (c2 >> BITS_PER_LIMB);
-        long c4 = a[4] - modulus[4] + (c3 >> BITS_PER_LIMB);
-        long mask = c4 >> BITS_PER_LIMB; // Signed shift!
-
-        a[0] = ((aa0 & mask) | (c0 & ~mask)) & LIMB_MASK;
-        a[1] = ((aa1 & mask) | (c1 & ~mask)) & LIMB_MASK;
-        a[2] = ((aa2 & mask) | (c2 & ~mask)) & LIMB_MASK;
-        a[3] = ((aa3 & mask) | (c3 & ~mask)) & LIMB_MASK;
-        a[4] = ((aa4 & mask) | (c4 & ~mask));
     }
 }
