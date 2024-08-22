@@ -25,16 +25,12 @@ package org.openjdk.bench.javax.crypto.full;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.Param;
 import org.openjdk.jmh.annotations.Setup;
+import org.openjdk.jmh.infra.Blackhole;
 
-import javax.crypto.BadPaddingException;
 import javax.crypto.Cipher;
-import javax.crypto.IllegalBlockSizeException;
-import javax.crypto.NoSuchPaddingException;
 import javax.crypto.spec.SecretKeySpec;
-import java.security.InvalidAlgorithmParameterException;
-import java.security.InvalidKeyException;
-import java.security.NoSuchAlgorithmException;
-import java.security.spec.InvalidParameterSpecException;
+import java.security.GeneralSecurityException;
+import java.nio.ByteBuffer;
 
 public class AESBench extends CryptoBase {
 
@@ -49,14 +45,22 @@ public class AESBench extends CryptoBase {
     @Param({"" + 16 * 1024})
     private int dataSize;
 
+    public enum DataMethod{BYTE, DIRECT, HEAP}
+    @Param({"BYTE", "DIRECT", "HEAP"})
+    private DataMethod dataMethod;
+
     byte[][] data;
     byte[][] encryptedData;
     private Cipher encryptCipher;
     private Cipher decryptCipher;
     int index = 0;
 
+    private ByteBuffer[] dataBuffer = new ByteBuffer[SET_SIZE];
+    private ByteBuffer[] encryptedDataBuffer = new ByteBuffer[SET_SIZE];
+    private ByteBuffer outBuffer;
+
     @Setup
-    public void setup() throws NoSuchAlgorithmException, NoSuchPaddingException, InvalidKeyException, BadPaddingException, IllegalBlockSizeException, InvalidAlgorithmParameterException, InvalidParameterSpecException {
+    public void setup() throws GeneralSecurityException {
         setupProvider();
         byte[] keystring = fillSecureRandom(new byte[keyLength / 8]);
         SecretKeySpec ks = new SecretKeySpec(keystring, "AES");
@@ -66,20 +70,44 @@ public class AESBench extends CryptoBase {
         decryptCipher.init(Cipher.DECRYPT_MODE, ks, encryptCipher.getParameters());
         data = fillRandom(new byte[SET_SIZE][dataSize]);
         encryptedData = fillEncrypted(data, encryptCipher);
+
+        for (int i = 0; i < data.length; i++) {
+            if (dataMethod == DataMethod.HEAP) {
+                dataBuffer[i] = ByteBuffer.wrap(data[i]);
+                encryptedDataBuffer[i] = ByteBuffer.wrap(encryptedData[i]);
+                outBuffer = ByteBuffer.allocate(dataSize);
+            } else if (dataMethod == DataMethod.DIRECT) {
+                dataBuffer[i] = ByteBuffer.allocateDirect(data[i].length);
+                dataBuffer[i].put(data[i]);
+                encryptedDataBuffer[i] = ByteBuffer.allocateDirect(encryptedData[i].length);
+                encryptedDataBuffer[i].put(encryptedData[i]);
+                outBuffer = ByteBuffer.allocateDirect(dataSize);
+            }
+        }
     }
 
     @Benchmark
-    public byte[] encrypt() throws BadPaddingException, IllegalBlockSizeException {
-        byte[] d = data[index];
+    public void encrypt(Blackhole bh) throws GeneralSecurityException {
+        if (dataMethod == DataMethod.BYTE) {
+            bh.consume(encryptCipher.doFinal(data[index]));
+        } else {
+            bh.consume(encryptCipher.doFinal(dataBuffer[index], outBuffer));
+            dataBuffer[index].rewind();
+            outBuffer.clear();
+        }
         index = (index +1) % SET_SIZE;
-        return encryptCipher.doFinal(d);
     }
 
     @Benchmark
-    public byte[] decrypt() throws BadPaddingException, IllegalBlockSizeException {
-        byte[] e = encryptedData[index];
+    public void decrypt(Blackhole bh) throws GeneralSecurityException {
+        if (dataMethod == DataMethod.BYTE) {
+            bh.consume(decryptCipher.doFinal(encryptedData[index]));
+        } else {
+            bh.consume(decryptCipher.doFinal(encryptedDataBuffer[index], outBuffer));
+            encryptedDataBuffer[index].rewind();
+            outBuffer.clear();
+        }
         index = (index +1) % SET_SIZE;
-        return decryptCipher.doFinal(e);
     }
 
 }

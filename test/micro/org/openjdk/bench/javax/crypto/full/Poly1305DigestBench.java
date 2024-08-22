@@ -26,6 +26,7 @@ package org.openjdk.bench.javax.crypto.full;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.Param;
 import org.openjdk.jmh.annotations.Setup;
+import org.openjdk.jmh.infra.Blackhole;
 
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
@@ -48,7 +49,12 @@ public class Poly1305DigestBench extends CryptoBase {
     @Param({"64", "256", "1024", "" + 16*1024, "" + 1024*1024})
     int dataSize;
 
+    public enum DataMethod{BYTE, DIRECT, HEAP}
+    @Param({"BYTE", "DIRECT", "HEAP"})
+    private DataMethod dataMethod;
+
     private byte[][] data;
+    private ByteBuffer[] dataBuffer = new ByteBuffer[SET_SIZE];
     int index = 0;
     private static MethodHandle polyEngineInit, polyEngineUpdate, polyEngineUpdateBuf, polyEngineFinal;
     private static Object polyObj;
@@ -85,44 +91,27 @@ public class Poly1305DigestBench extends CryptoBase {
     public void setup() throws Throwable {
         setupProvider();
         data = fillRandom(new byte[SET_SIZE][dataSize]);
-        byte[] d = data[0];
-        polyEngineInit.invoke(polyObj, new SecretKeySpec(d, 0, 32, "Poly1305"), null);
-    }
+        polyEngineInit.invoke(polyObj, new SecretKeySpec(data[0], 0, 32, "Poly1305"), null);
 
-    @Benchmark
-    public byte[] digestBytes() {
-        try {
-            byte[] d = data[index];
-            index = (index +1) % SET_SIZE;
-            polyEngineInit.invoke(polyObj, new SecretKeySpec(d, 0, 32, "Poly1305"), null);
-            polyEngineUpdate.invoke(polyObj, d, 0, d.length);
-            return (byte[])polyEngineFinal.invoke(polyObj);
-        } catch (Throwable ex) {
-            throw new RuntimeException(ex);
+        for (int i = 0; i < data.length; i++) {
+            if (dataMethod == DataMethod.HEAP) {
+                dataBuffer[i] = ByteBuffer.wrap(data[i]);
+            } else if (dataMethod == DataMethod.DIRECT) {
+                dataBuffer[i] = ByteBuffer.allocateDirect(data[i].length);
+                dataBuffer[i].put(data[i]);
+            }
         }
     }
 
     @Benchmark
-    public void updateBytes() {
-        try {
-            byte[] d = data[index];
-            // index = (index +1) % SET_SIZE;
-            polyEngineUpdate.invoke(polyObj, d, 0, d.length);
-        } catch (Throwable ex) {
-            throw new RuntimeException(ex);
+    public void digest(Blackhole bh) throws Throwable {
+        if (dataMethod == DataMethod.BYTE) {
+            polyEngineUpdate.invoke(polyObj, data[index], 0, data[index].length);
+        } else {
+            polyEngineUpdateBuf.invoke(polyObj, dataBuffer[index]);
+            dataBuffer[index].rewind();
         }
-    }
-
-    @Benchmark
-    public byte[] digestBuffer() {
-        try {
-            byte[] d = data[index];
-            index = (index +1) % SET_SIZE;
-            polyEngineInit.invoke(polyObj, new SecretKeySpec(d, 0, 32, "Poly1305"), null);
-            polyEngineUpdateBuf.invoke(polyObj, ByteBuffer.wrap(d, 0, d.length));
-            return (byte[])polyEngineFinal.invoke(polyObj);
-        } catch (Throwable ex) {
-            throw new RuntimeException(ex);
-        }
+        bh.consume(polyEngineFinal.invoke(polyObj));
+        index = (index +1) % SET_SIZE;
     }
 }

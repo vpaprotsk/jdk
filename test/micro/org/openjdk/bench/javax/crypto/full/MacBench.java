@@ -25,11 +25,13 @@ package org.openjdk.bench.javax.crypto.full;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.Param;
 import org.openjdk.jmh.annotations.Setup;
+import org.openjdk.jmh.infra.Blackhole;
 
 import javax.crypto.KeyGenerator;
 import javax.crypto.Mac;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
+import java.nio.ByteBuffer;
 
 public class MacBench extends CryptoBase {
 
@@ -42,8 +44,13 @@ public class MacBench extends CryptoBase {
     int dataSize;
 
     private byte[][] data;
+    private ByteBuffer[] dataBuffer = new ByteBuffer[SET_SIZE];
     private Mac mac;
     int index = 0;
+
+    public enum DataMethod{BYTE, DIRECT, HEAP}
+    @Param({"BYTE", "DIRECT", "HEAP"})
+    private DataMethod dataMethod;
 
     @Setup
     public void setup() throws NoSuchAlgorithmException, InvalidKeyException {
@@ -51,13 +58,27 @@ public class MacBench extends CryptoBase {
         mac = (prov == null) ? Mac.getInstance(algorithm) : Mac.getInstance(algorithm, prov);
         mac.init(KeyGenerator.getInstance(algorithm).generateKey());
         data = fillRandom(new byte[SET_SIZE][dataSize]);
+
+        for (int i = 0; i < data.length; i++) {
+            if (dataMethod == DataMethod.HEAP) {
+                dataBuffer[i] = ByteBuffer.wrap(data[i]);
+            } else if (dataMethod == DataMethod.DIRECT) {
+                dataBuffer[i] = ByteBuffer.allocateDirect(data[i].length);
+                dataBuffer[i].put(data[i]);
+            }
+        }
     }
 
     @Benchmark
-    public byte[] mac() throws NoSuchAlgorithmException {
-        byte[] d = data[index];
+    public void mac(Blackhole bh) throws NoSuchAlgorithmException {
+        if (dataMethod == DataMethod.BYTE) {
+            bh.consume(mac.doFinal(data[index]));
+        } else {
+            mac.update(dataBuffer[index]);
+            bh.consume(mac.doFinal());
+            dataBuffer[index].rewind();
+        }
         index = (index + 1) % SET_SIZE;
-        return mac.doFinal(d);
     }
 
 }

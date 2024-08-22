@@ -25,9 +25,11 @@ package org.openjdk.bench.javax.crypto.full;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.Param;
 import org.openjdk.jmh.annotations.Setup;
+import org.openjdk.jmh.infra.Blackhole;
 
 import javax.crypto.*;
 import javax.crypto.spec.*;
+import java.nio.ByteBuffer;
 import java.security.*;
 import java.security.spec.*;
 
@@ -49,6 +51,10 @@ public abstract class CipherBench extends CryptoBase {
     @Param({})
     private int dataSize;
 
+    public enum DataMethod{BYTE, DIRECT, HEAP}
+    @Param({"BYTE", "DIRECT", "HEAP"})
+    private DataMethod dataMethod;
+
     private int decryptCount = 0;
     private byte[] data;
     private byte[][] encryptedData = new byte[2][];
@@ -57,6 +63,10 @@ public abstract class CipherBench extends CryptoBase {
     private Cipher decryptCipher;
     protected SecretKeySpec ks;
     protected byte[] iv;
+
+    private ByteBuffer dataBuffer;
+    private ByteBuffer[] encryptedDataBuffer = new ByteBuffer[2];
+    private ByteBuffer outBuffer2;
 
     protected abstract int ivLength();
     protected abstract AlgorithmParameterSpec makeParameterSpec();
@@ -97,20 +107,50 @@ public abstract class CipherBench extends CryptoBase {
         }
         outBuffer = new byte[dataSize + 128]; // extra space for tag, etc
         decryptCipher = makeCipher(prov, transform);
+
+        if (dataMethod == DataMethod.HEAP) {
+            dataBuffer = ByteBuffer.wrap(data);
+            for (int i = 0; i < 2; i++) {
+                encryptedDataBuffer[i] = ByteBuffer.wrap(encryptedData[i]);
+            }
+            outBuffer2 = ByteBuffer.allocate(outBuffer.length);
+        } else if (dataMethod == DataMethod.DIRECT) {
+            dataBuffer = ByteBuffer.allocateDirect(data.length);
+            dataBuffer.put(data);
+            for (int i = 0; i < 2; i++) {
+                encryptedDataBuffer[i] = ByteBuffer.allocateDirect(encryptedData[i].length);
+                encryptedDataBuffer[i].put(encryptedData[i]);
+            }
+            outBuffer2 = ByteBuffer.allocateDirect(outBuffer.length);
+        }
     }
 
     @Benchmark
-    public void encrypt() throws GeneralSecurityException {
+    public void encrypt(Blackhole bh) throws GeneralSecurityException {
         init(encryptCipher[1], Cipher.ENCRYPT_MODE, ks);
-        encryptCipher[1].doFinal(data, 0, data.length, outBuffer);
+        if (dataMethod == DataMethod.BYTE) {
+            encryptCipher[1].doFinal(data, 0, data.length, outBuffer);
+        } else {
+            encryptCipher[1].doFinal(dataBuffer, outBuffer2);
+            dataBuffer.rewind();
+            outBuffer2.clear();
+        }
+
     }
 
     @Benchmark
-    public void decrypt() throws GeneralSecurityException {
+    public void decrypt(Blackhole bh) throws GeneralSecurityException {
         init(decryptCipher, Cipher.DECRYPT_MODE, ks,
             encryptCipher[decryptCount]);
-        decryptCipher.doFinal(encryptedData[decryptCount], 0,
-            encryptedData[decryptCount].length, outBuffer);
+        if (dataMethod == DataMethod.BYTE) {
+            bh.consume(
+                decryptCipher.doFinal(encryptedData[decryptCount], 0,
+                    encryptedData[decryptCount].length, outBuffer));
+        } else {
+            bh.consume(encryptCipher[1].doFinal(dataBuffer, outBuffer2));
+            dataBuffer.rewind();
+            outBuffer2.clear();
+        }
         decryptCount = (decryptCount + 1) % 2;
     }
 

@@ -25,6 +25,7 @@ package org.openjdk.bench.javax.crypto.full;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.Param;
 import org.openjdk.jmh.annotations.Setup;
+import org.openjdk.jmh.infra.Blackhole;
 
 import java.security.InvalidKeyException;
 import java.security.KeyPair;
@@ -35,6 +36,7 @@ import java.security.PublicKey;
 import java.security.Signature;
 import java.security.SignatureException;
 import java.util.Random;
+import java.nio.ByteBuffer;
 
 public class SignatureBench extends CryptoBase {
 
@@ -49,12 +51,18 @@ public class SignatureBench extends CryptoBase {
     @Param({"1024"})
     private int keyLength;
 
+    public enum DataMethod{BYTE, DIRECT, HEAP}
+    @Param({"BYTE", "DIRECT", "HEAP"})
+    private DataMethod dataMethod;
+
     private PrivateKey privateKey;
     private PublicKey publicKey;
     private byte[][] data;
     private byte[][] signedData;
     int index;
-
+    private ByteBuffer[] dataBuffer = new ByteBuffer[SET_SIZE];
+    private Signature signature;
+    private Signature signatureVerify;
 
     private String getKeyPairGeneratorName() {
         int withIndex = algorithm.lastIndexOf("with");
@@ -73,37 +81,54 @@ public class SignatureBench extends CryptoBase {
         KeyPair keys = kpg.generateKeyPair();
         this.privateKey = keys.getPrivate();
         this.publicKey = keys.getPublic();
+        signature = (prov == null) ? Signature.getInstance(algorithm) : Signature.getInstance(algorithm, prov);
+        signature.initSign(privateKey);
+        signatureVerify = (prov == null) ? Signature.getInstance(algorithm) : Signature.getInstance(algorithm, prov);
+        signatureVerify.initVerify(publicKey);
+
         data = fillRandom(new byte[SET_SIZE][dataSize]);
         signedData = new byte[data.length][];
         for (int i = 0; i < data.length; i++) {
             signedData[i] = sign(data[i]);
         }
 
+        for (int i = 0; i < data.length; i++) {
+            if (dataMethod == DataMethod.HEAP) {
+                dataBuffer[i] = ByteBuffer.wrap(data[i]);
+            } else if (dataMethod == DataMethod.DIRECT) {
+                dataBuffer[i] = ByteBuffer.allocateDirect(data[i].length);
+                dataBuffer[i].put(data[i]);
+            }
+        }
     }
 
     public byte[] sign(byte[] data) throws NoSuchAlgorithmException, InvalidKeyException, SignatureException {
-        Signature signature = (prov == null) ? Signature.getInstance(algorithm) : Signature.getInstance(algorithm, prov);
-        signature.initSign(privateKey);
         signature.update(data);
         return signature.sign();
     }
 
     @Benchmark
-    public byte[] sign() throws NoSuchAlgorithmException, InvalidKeyException, SignatureException {
-        byte[] d = data[index];
+    public void sign(Blackhole bh) throws NoSuchAlgorithmException, InvalidKeyException, SignatureException {
+        if (dataMethod == DataMethod.BYTE) {
+            signature.update(data[index]);
+        } else {
+            signature.update(dataBuffer[index]);
+            dataBuffer[index].rewind();
+        }
+        bh.consume(signature.sign());
         index = (index + 1) % SET_SIZE;
-        return sign(d);
     }
 
     @Benchmark
-    public boolean verify() throws NoSuchAlgorithmException, InvalidKeyException, SignatureException {
-        Signature signature = (prov == null) ? Signature.getInstance(algorithm) : Signature.getInstance(algorithm, prov);
-        signature.initVerify(publicKey);
-        byte[] d = data[index];
-        byte[] s = signedData[index];
+    public void verify(Blackhole bh) throws NoSuchAlgorithmException, InvalidKeyException, SignatureException {
+        if (dataMethod == DataMethod.BYTE) {
+            signature.update(data[index]);
+        } else {
+            signature.update(dataBuffer[index]);
+            dataBuffer[index].rewind();
+        }
+        bh.consume(signature.verify(signedData[index]));
         index = (index + 1) % SET_SIZE;
-        signature.update(d);
-        return signature.verify(s);
     }
 
     public static class RSA extends SignatureBench {

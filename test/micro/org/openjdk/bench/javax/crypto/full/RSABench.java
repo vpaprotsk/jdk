@@ -25,15 +25,13 @@ package org.openjdk.bench.javax.crypto.full;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.Param;
 import org.openjdk.jmh.annotations.Setup;
+import org.openjdk.jmh.infra.Blackhole;
 
-import javax.crypto.BadPaddingException;
 import javax.crypto.Cipher;
-import javax.crypto.IllegalBlockSizeException;
-import javax.crypto.NoSuchPaddingException;
-import java.security.InvalidKeyException;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
-import java.security.NoSuchAlgorithmException;
+import java.security.GeneralSecurityException;
+import java.nio.ByteBuffer;
 
 public class RSABench extends CryptoBase {
 
@@ -48,6 +46,9 @@ public class RSABench extends CryptoBase {
     @Param({"1024", "2048", "3072"})
     protected int keyLength;
 
+    public enum DataMethod{BYTE, DIRECT, HEAP}
+    @Param({"BYTE", "DIRECT", "HEAP"})
+    private DataMethod dataMethod;
 
     private byte[][] data;
     private byte[][] encryptedData;
@@ -56,8 +57,12 @@ public class RSABench extends CryptoBase {
     private Cipher decryptCipher;
     private int index = 0;
 
+    private ByteBuffer[] dataBuffer = new ByteBuffer[SET_SIZE];
+    private ByteBuffer[] encryptedDataBuffer = new ByteBuffer[SET_SIZE];
+    private ByteBuffer outBuffer;
+
     @Setup()
-    public void setup() throws NoSuchAlgorithmException, NoSuchPaddingException, InvalidKeyException, BadPaddingException, IllegalBlockSizeException {
+    public void setup() throws GeneralSecurityException {
         setupProvider();
         data = fillRandom(new byte[SET_SIZE][dataSize]);
 
@@ -72,20 +77,44 @@ public class RSABench extends CryptoBase {
         decryptCipher.init(Cipher.DECRYPT_MODE, keyPair.getPrivate());
         encryptedData = fillEncrypted(data, encryptCipher);
 
+        for (int i = 0; i < data.length; i++) {
+            if (dataMethod == DataMethod.HEAP) {
+                dataBuffer[i] = ByteBuffer.wrap(data[i]);
+                encryptedDataBuffer[i] = ByteBuffer.wrap(encryptedData[i]);
+                outBuffer = ByteBuffer.allocate(dataSize);
+            } else if (dataMethod == DataMethod.DIRECT) {
+                dataBuffer[i] = ByteBuffer.allocateDirect(data[i].length);
+                dataBuffer[i].put(data[i]);
+                encryptedDataBuffer[i] = ByteBuffer.allocateDirect(encryptedData[i].length);
+                encryptedDataBuffer[i].put(encryptedData[i]);
+                outBuffer = ByteBuffer.allocateDirect(dataSize);
+            }
+        }
+
     }
 
     @Benchmark
-    public byte[] encrypt() throws BadPaddingException, IllegalBlockSizeException {
-        byte[] d = data[index];
+    public void encrypt(Blackhole bh) throws GeneralSecurityException {
+        if (dataMethod == DataMethod.BYTE) {
+            bh.consume(encryptCipher.doFinal(data[index]));
+        } else {
+            bh.consume(encryptCipher.doFinal(dataBuffer[index], outBuffer));
+            dataBuffer[index].rewind();
+            outBuffer.clear();
+        }
         index = (index +1) % SET_SIZE;
-        return encryptCipher.doFinal(d);
     }
 
     @Benchmark
-    public byte[] decrypt() throws BadPaddingException, IllegalBlockSizeException {
-        byte[] e = encryptedData[index];
+    public void decrypt(Blackhole bh) throws GeneralSecurityException {
+        if (dataMethod == DataMethod.BYTE) {
+            bh.consume(decryptCipher.doFinal(encryptedData[index]));
+        } else {
+            bh.consume(decryptCipher.doFinal(encryptedDataBuffer[index], outBuffer));
+            encryptedDataBuffer[index].rewind();
+            outBuffer.clear();
+        }
         index = (index +1) % SET_SIZE;
-        return decryptCipher.doFinal(e);
     }
 
     public static class Extra extends RSABench {

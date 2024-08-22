@@ -25,15 +25,17 @@ package org.openjdk.bench.javax.crypto.full;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.Param;
 import org.openjdk.jmh.annotations.Setup;
+import org.openjdk.jmh.infra.Blackhole;
 
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.nio.ByteBuffer;
 
 public class MessageDigestBench extends CryptoBase {
 
     public static final int SET_SIZE = 128;
 
-    @Param({"MD5", "SHA", "SHA-256", "SHA-384", "SHA-512"})
+    @Param({"MD5", "SHA", "SHA-256", "SHA-384", "SHA-512", "SHA3-224", "SHA3-256", "SHA3-384", "SHA3-512"})
     private String algorithm;
 
     /*
@@ -45,21 +47,40 @@ public class MessageDigestBench extends CryptoBase {
     int dataSize;
 
     private byte[][] data;
+    private ByteBuffer[] dataBuffer = new ByteBuffer[SET_SIZE];
     int index = 0;
+    private MessageDigest md;
 
+    public enum DataMethod{BYTE, DIRECT, HEAP}
+    @Param({"BYTE", "DIRECT", "HEAP"})
+    private DataMethod dataMethod;
 
     @Setup
-    public void setup() {
+    public void setup() throws NoSuchAlgorithmException {
         setupProvider();
         data = fillRandom(new byte[SET_SIZE][dataSize]);
+
+        for (int i = 0; i < data.length; i++) {
+            if (dataMethod == DataMethod.HEAP) {
+                dataBuffer[i] = ByteBuffer.wrap(data[i]);
+            } else if (dataMethod == DataMethod.DIRECT) {
+                dataBuffer[i] = ByteBuffer.allocateDirect(data[i].length);
+                dataBuffer[i].put(data[i]);
+            }
+        }
+        md = (prov == null) ? MessageDigest.getInstance(algorithm) : MessageDigest.getInstance(algorithm, prov);
     }
 
     @Benchmark
-    public byte[] digest() throws NoSuchAlgorithmException {
-        MessageDigest md = (prov == null) ? MessageDigest.getInstance(algorithm) : MessageDigest.getInstance(algorithm, prov);
-        byte[] d = data[index];
+    public void digest(Blackhole bh) {
+        if (dataMethod == DataMethod.BYTE) {
+            bh.consume(md.digest(data[index]));
+        } else {
+            md.update(dataBuffer[index]);
+            bh.consume(md.digest());
+            dataBuffer[index].rewind();
+        }
         index = (index +1) % SET_SIZE;
-        return md.digest(d);
     }
 
 }
