@@ -59,6 +59,19 @@ public class MontgomeryPolynomialFuzzTest {
         System.out.println("Fuzz Success");
     }
 
+    private static void checkOverflow(ImmutableIntegerModuloP testValue, long seed) {
+        long limbs[] = testValue.getLimbs();
+        BigInteger mod = MontgomeryIntegerPolynomialP256.ONE.MODULUS;
+        BigInteger ref = BigInteger.ZERO;
+        for (int i = 0; i<limbs.length; i++) {
+            ref.add(BigInteger.valueOf(limbs[i]).shiftLeft(i*52));
+        }
+        if (ref.compareTo(mod)!=-1) {
+            throw new RuntimeException("SEED[" + seed + "]: " + 
+            ref.toString(16) + " != " + mod.toString(16));
+        }
+    }
+
     private static void check(BigInteger reference,
             ImmutableIntegerModuloP testValue, long seed) {
         BigInteger test = testValue.asBigInteger();
@@ -87,15 +100,18 @@ public class MontgomeryPolynomialFuzzTest {
         ImmutableIntegerModuloP a = montField.getElement(aRef);
         aRef = aRef.multiply(r).mod(P);
         check(aRef, a, seed);
+        checkOverflow(a, seed);
 
         ImmutableIntegerModuloP b = montField.getElement(bRef);
         bRef = bRef.multiply(r).mod(P);
         check(bRef, b, seed);
+        checkOverflow(b, seed);
 
         if (rnd.nextBoolean()) {
             aRef = aRef.multiply(aRef).multiply(rInv).mod(P);
             a = a.multiply(a);
             check(aRef, a, seed);
+            checkOverflow(a, seed);
         }
 
         if (rnd.nextBoolean()) {
@@ -114,6 +130,7 @@ public class MontgomeryPolynomialFuzzTest {
             aRef = aRef.multiply(bRef).multiply(rInv).mod(P);
             a = a.multiply(b);
             check(aRef, a, seed);
+            checkOverflow(a, seed);
         }
 
         if (rnd.nextBoolean()) {
@@ -126,12 +143,14 @@ public class MontgomeryPolynomialFuzzTest {
             aRef = aRef.multiply(BigInteger.valueOf(3)).mod(P);
             a = a.mutable().setProduct(three).fixed();
             check(aRef, a, seed);
+            checkOverflow(a, seed);
         }
 
         if (rnd.nextBoolean()) {
             aRef = aRef.multiply(BigInteger.valueOf(4)).mod(P);
             a = a.mutable().setProduct(four).fixed();
             check(aRef, a, seed);
+            checkOverflow(a, seed);
         }
     }
 }

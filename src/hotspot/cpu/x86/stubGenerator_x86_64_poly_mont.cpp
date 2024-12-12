@@ -29,7 +29,7 @@
 
 #define __ _masm->
 
-ATTRIBUTE_ALIGNED(64) uint64_t MODULUS_P256[] = {
+ATTRIBUTE_ALIGNED(64) constexpr uint64_t MODULUS_P256[] = {
   0x000fffffffffffffULL, 0x00000fffffffffffULL,
   0x0000000000000000ULL, 0x0000001000000000ULL,
   0x0000ffffffff0000ULL, 0x0000000000000000ULL,
@@ -39,7 +39,7 @@ static address modulus_p256(int index = 0) {
   return (address)&MODULUS_P256[index];
 }
 
-ATTRIBUTE_ALIGNED(64) uint64_t P256_MASK52[] = {
+ATTRIBUTE_ALIGNED(64) constexpr uint64_t P256_MASK52[] = {
   0x000fffffffffffffULL, 0x000fffffffffffffULL,
   0x000fffffffffffffULL, 0x000fffffffffffffULL,
   0xffffffffffffffffULL, 0xffffffffffffffffULL,
@@ -49,7 +49,7 @@ static address p256_mask52() {
   return (address)P256_MASK52;
 }
 
-ATTRIBUTE_ALIGNED(64) uint64_t SHIFT1R[] = {
+ATTRIBUTE_ALIGNED(64) constexpr uint64_t SHIFT1R[] = {
   0x0000000000000001ULL, 0x0000000000000002ULL,
   0x0000000000000003ULL, 0x0000000000000004ULL,
   0x0000000000000005ULL, 0x0000000000000006ULL,
@@ -59,7 +59,7 @@ static address shift_1R() {
   return (address)SHIFT1R;
 }
 
-ATTRIBUTE_ALIGNED(64) uint64_t SHIFT1L[] = {
+ATTRIBUTE_ALIGNED(64) constexpr uint64_t SHIFT1L[] = {
   0x0000000000000007ULL, 0x0000000000000000ULL,
   0x0000000000000001ULL, 0x0000000000000002ULL,
   0x0000000000000003ULL, 0x0000000000000004ULL,
@@ -69,7 +69,7 @@ static address shift_1L() {
   return (address)SHIFT1L;
 }
 
-ATTRIBUTE_ALIGNED(64) uint64_t MASKL5[] = {
+ATTRIBUTE_ALIGNED(64) constexpr uint64_t MASKL5[] = {
   0xFFFFFFFFFFFFFFFFULL, 0xFFFFFFFFFFFFFFFFULL,
   0xFFFFFFFFFFFFFFFFULL, 0x0000000000000000ULL,
 };
@@ -153,10 +153,10 @@ void montgomeryMultiply(const Register aLimbs, const Register bLimbs, const Regi
   XMMRegister Carry = xmm13;
 
   // // Constants
-  XMMRegister modulus = xmm20;
-  XMMRegister shift1L = xmm21;
-  XMMRegister shift1R = xmm22;
-  XMMRegister Mask52  = xmm23;
+  XMMRegister modulus = xmm5;
+  XMMRegister shift1L = xmm6;
+  XMMRegister shift1R = xmm7;
+  XMMRegister Mask52  = xmm8;
   KRegister allLimbs = k1;
   KRegister limb0    = k2;
   KRegister masks[] = {limb0, k3, k4, k5};
@@ -168,12 +168,12 @@ void montgomeryMultiply(const Register aLimbs, const Register bLimbs, const Regi
 
   __ mov64(t0, 0x1f);
   __ kmovql(allLimbs, t0);
-  __ evmovdquq(shift1L, allLimbs, ExternalAddress(shift_1L()), false, Assembler::AVX_512bit, rscratch);
-  __ evmovdquq(shift1R, allLimbs, ExternalAddress(shift_1R()), false, Assembler::AVX_512bit, rscratch);
-  __ evmovdquq(Mask52, allLimbs, ExternalAddress(p256_mask52()), false, Assembler::AVX_512bit, rscratch);
+  __ evmovdqaq(shift1L, allLimbs, ExternalAddress(shift_1L()), false, Assembler::AVX_512bit, rscratch);
+  __ evmovdqaq(shift1R, allLimbs, ExternalAddress(shift_1R()), false, Assembler::AVX_512bit, rscratch);
+  __ evmovdqaq(Mask52, allLimbs, ExternalAddress(p256_mask52()), false, Assembler::AVX_512bit, rscratch);
 
   // M = load(*modulus_p256)
-  __ evmovdquq(modulus, allLimbs, ExternalAddress(modulus_p256()), false, Assembler::AVX_512bit, rscratch);
+  __ evmovdqaq(modulus, allLimbs, ExternalAddress(modulus_p256()), false, Assembler::AVX_512bit, rscratch);
 
   // A = load(*aLimbs);  masked evmovdquq() can be slow. Instead load full 256bit, and compbine with 64bit
   __ evmovdquq(A, Address(aLimbs, 8), Assembler::AVX_256bit);
@@ -274,6 +274,10 @@ void montgomeryMultiply(const Register aLimbs, const Register bLimbs, const Regi
   // output to rLimbs (1 + 4 limbs)
   __ movq(Address(rLimbs, 0), Acc2L);
   __ evmovdquq(Address(rLimbs, 8), Acc2, Assembler::AVX_256bit);
+
+  // Cleanup
+  // Zero out zmm0-zmm15, higher registers not used by intrinsic.
+  __ vzeroall();
 }
 
 /**
@@ -360,7 +364,7 @@ void montgomeryMultiplyAVX2(const Register aLimbs, const Register bLimbs, const 
   __ mov64(mask52, P256_MASK52[0]);
   __ movq(Mask52, mask52);
   __ vpbroadcastq(Mask52, Mask52, Assembler::AVX_256bit);
-  __ vmovdqu(MaskLimb5, ExternalAddress(mask_limb5()), Assembler::AVX_256bit, rscratch);
+  __ vmovdqa(MaskLimb5, ExternalAddress(mask_limb5()), Assembler::AVX_256bit, rscratch);
   __ vpxorq(Zero, Zero, Zero, Assembler::AVX_256bit);
 
   // M = load(*modulus_p256)
@@ -440,7 +444,8 @@ void montgomeryMultiplyAVX2(const Register aLimbs, const Register bLimbs, const 
   // to select result)
   // acc1  = tmp2;
   // acc2  = tmp3;
-  Register limb[] = {acc2, tmp1, tmp4, tmp5, tmp6};
+  // mask52 = tmp5
+  Register limb[] = {acc2, tmp1, tmp4, tmp_rdx, tmp6};
   Register carry = tmp_rax;
   for (int i = 0; i<5; i++) {
     if (i > 0) {
@@ -478,6 +483,13 @@ void montgomeryMultiplyAVX2(const Register aLimbs, const Register bLimbs, const 
     __ andq(digit, mask52);
     __ movq(Address(rLimbs, i*8), digit);
   }
+
+  // Cleanup
+  // Zero out ymm0-ymm15.
+  __ vzeroall();
+  __ vpxorq(Acc1, Acc1, Acc1, Assembler::AVX_256bit);
+  __ vmovdqu(Address(rsp, -32), Acc1); //Assembler::AVX_256bit
+  __ vmovdqu(Address(rsp, -64), Acc1); //Assembler::AVX_256bit
 }
 
 address StubGenerator::generate_intpoly_montgomeryMult_P256() {
