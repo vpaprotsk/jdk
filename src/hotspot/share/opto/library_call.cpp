@@ -597,7 +597,9 @@ bool LibraryCallKit::try_to_inline(int predicate) {
   case vmIntrinsics::_sha3_implCompress:
     return inline_digestBase_implCompress(intrinsic_id());
   case vmIntrinsics::_double_keccak:
-    return inline_double_keccak();
+  case vmIntrinsics::_quad_keccak:
+  case vmIntrinsics::_eight_keccak:
+    return inline_double_keccak(intrinsic_id());
 
   case vmIntrinsics::_digestBase_implCompressMB:
     return inline_digestBase_implCompressMB(predicate);
@@ -8367,30 +8369,92 @@ bool LibraryCallKit::inline_digestBase_implCompress(vmIntrinsics::ID id) {
 }
 
 //------------------------------inline_double_keccak
-bool LibraryCallKit::inline_double_keccak() {
+bool LibraryCallKit::inline_double_keccak(vmIntrinsics::ID id) {
   address stubAddr;
   const char *stubName;
   assert(UseSHA3Intrinsics, "need SHA3 intrinsics support");
-  assert(callee()->signature()->size() == 2, "double_keccak has 2 parameters");
+  assert((id == vmIntrinsics::_double_keccak && callee()->signature()->size() == 2) ||
+         (id == vmIntrinsics::_quad_keccak && callee()->signature()->size() == 4) ||
+         (id == vmIntrinsics::_eight_keccak && callee()->signature()->size() == 8),
+          "double_keccak wrong number of parameters");
 
-  stubAddr = StubRoutines::double_keccak();
-  stubName = "double_keccak";
+  switch (id) {
+    case vmIntrinsics::_double_keccak:
+      stubAddr = StubRoutines::double_keccak();
+      stubName = "double_keccak";
+      break;
+    case vmIntrinsics::_quad_keccak:
+      stubAddr = StubRoutines::quad_keccak();
+      stubName = "quad_keccak";
+      break;
+    case vmIntrinsics::_eight_keccak:
+      stubAddr = StubRoutines::eight_keccak();
+      stubName = "eight_keccak";
+      break;
+    default:
+      assert(false, "dont call");
+  }
+
   if (!stubAddr) return false;
 
-  Node* status0        = argument(0);
-  Node* status1        = argument(1);
+  Node* state0, *state1, *state2, *state3, *state4, *state5, *state6, *state7;
+  switch (id) { // INTENTIONALLY missing break statements
+    case vmIntrinsics::_eight_keccak:
+      state4 = must_be_not_null(argument(4), true);
+      state4 = array_element_address(state4, intcon(0), T_LONG);
+      assert(state4, "state4 is null");
+      state5 = must_be_not_null(argument(5), true);
+      state5 = array_element_address(state5, intcon(0), T_LONG);
+      assert(state5, "state5 is null");
+      state6 = must_be_not_null(argument(6), true);
+      state6 = array_element_address(state6, intcon(0), T_LONG);
+      assert(state6, "state6 is null");
+      state7 = must_be_not_null(argument(7), true);
+      state7 = array_element_address(state7, intcon(0), T_LONG);
+      assert(state7, "state7 is null");
+    case vmIntrinsics::_quad_keccak:
+      state2 = must_be_not_null(argument(2), true);
+      state2 = array_element_address(state2, intcon(0), T_LONG);
+      assert(state2, "state2 is null");
+      state3 = must_be_not_null(argument(3), true);
+      state3 = array_element_address(state3, intcon(0), T_LONG);
+      assert(state3, "state3 is null");
+    case vmIntrinsics::_double_keccak:
+      state0 = must_be_not_null(argument(0), true);
+      state0 = array_element_address(state0, intcon(0), T_LONG);
+      assert(state0, "state0 is null");
+      state1 = must_be_not_null(argument(1), true);
+      state1 = array_element_address(state1, intcon(0), T_LONG);
+      assert(state1, "state1 is null");
+      break;
+    default:
+      assert(false, "dont call");
+  }
 
-  status0 = must_be_not_null(status0, true);
-  status1 = must_be_not_null(status1, true);
-
-  Node* status0_start  = array_element_address(status0, intcon(0), T_LONG);
-  assert(status0_start, "status0 is null");
-  Node* status1_start  = array_element_address(status1, intcon(0), T_LONG);
-  assert(status1_start, "status1 is null");
-  Node* double_keccak = make_runtime_call(RC_LEAF|RC_NO_FP,
+  Node* double_keccak;
+  switch (id) {
+    case vmIntrinsics::_double_keccak:
+      double_keccak = make_runtime_call(RC_LEAF|RC_NO_FP,
                                   OptoRuntime::double_keccak_Type(),
                                   stubAddr, stubName, TypePtr::BOTTOM,
-                                  status0_start, status1_start);
+                                  state0, state1);
+      break;
+    case vmIntrinsics::_quad_keccak:
+      double_keccak = make_runtime_call(RC_LEAF|RC_NO_FP,
+                                  OptoRuntime::quad_keccak_Type(),
+                                  stubAddr, stubName, TypePtr::BOTTOM,
+                                  state0, state1, state2, state3);
+      break;
+    case vmIntrinsics::_eight_keccak:
+      double_keccak = make_runtime_call(RC_LEAF|RC_NO_FP,
+                                  OptoRuntime::eight_keccak_Type(),
+                                  stubAddr, stubName, TypePtr::BOTTOM,
+                                  state0, state1, state2, state3, state4, state5, state6, state7);
+      break;
+    default:
+      assert(false, "dont call");
+  }
+
   // return an int
   Node* retvalue = _gvn.transform(new ProjNode(double_keccak, TypeFunc::Parms));
   set_result(retvalue);

@@ -74,7 +74,7 @@ public abstract class SHA3 extends DigestBase {
     private final byte suffix;
 
     // the state matrix flattened into an array
-    private long[] state = new long[DM*DM];
+    public long[] state = new long[DM*DM];
 
     // The byte offset in the state where the next squeeze() will start.
     // -1 indicates that either we are in the absorbing phase (only
@@ -110,6 +110,36 @@ public abstract class SHA3 extends DigestBase {
     void implCompress(byte[] b, int ofs) {
         implCompressCheck(b, ofs);
         implCompress0(b, ofs);
+    }
+
+    public void testCompress(long[] _state, byte[] b, int block) {
+        for (int i=0; i<state.length; i++) {
+            state[i] = _state[i];
+        }
+
+        blockSize = block;
+        
+        implCompress0(b, 0);
+    }
+
+    public void implCompressTest(byte[] b, int block) {
+        blockSize = block;
+        implCompress0(b, 0);
+    }
+
+    public void implMultiCompressTest( byte[] b, int block) {
+        blockSize = block;
+        implCompressMultiBlock0(b, 0, b.length - block);
+    }
+
+    public void testMultiCompress(long[] _state, byte[] b, int block) {
+        for (int i=0; i<state.length; i++) {
+            state[i] = _state[i];
+        }
+
+        blockSize = block;
+        
+        implCompressMultiBlock0(b, 0, b.length - block);
     }
 
     @IntrinsicCandidate
@@ -307,6 +337,56 @@ public abstract class SHA3 extends DigestBase {
             a15 ^= d0; a16 ^= d1; a17 ^= d2; a18 ^= d3; a19 ^= d4;
             a20 ^= d0; a21 ^= d1; a22 ^= d2; a23 ^= d3; a24 ^= d4;
 
+            // System.out.println(hex.toHexDigits(c0) + " ");
+            // System.out.println(hex.toHexDigits(c1) + " ");
+            // System.out.println(hex.toHexDigits(c2) + " ");
+            // System.out.println(hex.toHexDigits(c3) + " ");
+            // System.out.println(hex.toHexDigits(c4) + " ");
+            // System.out.println();
+
+            // System.out.println(hex.toHexDigits(d0) + " ");
+            // System.out.println(hex.toHexDigits(d1) + " ");
+            // System.out.println(hex.toHexDigits(d2) + " ");
+            // System.out.println(hex.toHexDigits(d3) + " ");
+            // System.out.println(hex.toHexDigits(d4) + " ");
+            // System.out.println();
+
+            // System.out.println(hex.toHexDigits(a0) + " ");
+            // System.out.println(hex.toHexDigits(a1) + " ");
+            // System.out.println(hex.toHexDigits(a2) + " ");
+            // System.out.println(hex.toHexDigits(a3) + " ");
+            // System.out.println(hex.toHexDigits(a4) + " ");
+            // System.out.println(hex.toHexDigits(a5) + " ");
+            // System.out.println(hex.toHexDigits(a6) + " ");
+            // System.out.println(hex.toHexDigits(a7) + " ");
+            // System.out.println(hex.toHexDigits(a8) + " ");
+            // System.out.println(hex.toHexDigits(a9) + " ");
+            // System.out.println(hex.toHexDigits(a10) + " ");
+            // System.out.println(hex.toHexDigits(a11) + " ");
+            // System.out.println(hex.toHexDigits(a12) + " ");
+            // System.out.println(hex.toHexDigits(a13) + " ");
+            // System.out.println(hex.toHexDigits(a14) + " ");
+            // System.out.println(hex.toHexDigits(a15) + " ");
+            // System.out.println(hex.toHexDigits(a16) + " ");
+            // System.out.println(hex.toHexDigits(a17) + " ");
+            // System.out.println(hex.toHexDigits(a18) + " ");
+            // System.out.println(hex.toHexDigits(a19) + " ");
+            // System.out.println(hex.toHexDigits(a20) + " ");
+            // System.out.println(hex.toHexDigits(a21) + " ");
+            // System.out.println(hex.toHexDigits(a22) + " ");
+            // System.out.println(hex.toHexDigits(a23) + " ");
+            // System.out.println(hex.toHexDigits(a24) + " ");
+            // System.out.println();
+
+            // t1 = in < 64-r
+            // t2 = in > r
+            // t2 = t1 | t2
+            // in = t2 ^ in
+
+            // t1 = in < mem(64-r)
+            // in = in > mem(r)
+            // in = in | t1
+
             /*
              * Merged Step mapping Rho (section 3.2.2) and Pi (section 3.2.3).
              * for performance. Optimization is achieved by precalculating
@@ -345,6 +425,33 @@ public abstract class SHA3 extends DigestBase {
             a17 = Long.rotateLeft(a11, 10);
             a11 = Long.rotateLeft(a7, 6);
             a7 = ay;
+
+            // System.out.println(hex.toHexDigits(a0) + " ");
+            // System.out.println(hex.toHexDigits(a1) + " ");
+            // System.out.println(hex.toHexDigits(a2) + " ");
+            // System.out.println(hex.toHexDigits(a3) + " ");
+            // System.out.println(hex.toHexDigits(a4) + " ");
+            // System.out.println(hex.toHexDigits(a5) + " ");
+            // System.out.println(hex.toHexDigits(a6) + " ");
+            // System.out.println(hex.toHexDigits(a7) + " ");
+            // System.out.println(hex.toHexDigits(a8) + " ");
+            // System.out.println(hex.toHexDigits(a9) + " ");
+            // System.out.println(hex.toHexDigits(a10) + " ");
+            // System.out.println(hex.toHexDigits(a11) + " ");
+            // System.out.println(hex.toHexDigits(a12) + " ");
+            // System.out.println(hex.toHexDigits(a13) + " ");
+            // System.out.println(hex.toHexDigits(a14) + " ");
+            // System.out.println(hex.toHexDigits(a15) + " ");
+            // System.out.println(hex.toHexDigits(a16) + " ");
+            // System.out.println(hex.toHexDigits(a17) + " ");
+            // System.out.println(hex.toHexDigits(a18) + " ");
+            // System.out.println(hex.toHexDigits(a19) + " ");
+            // System.out.println(hex.toHexDigits(a20) + " ");
+            // System.out.println(hex.toHexDigits(a21) + " ");
+            // System.out.println(hex.toHexDigits(a22) + " ");
+            // System.out.println(hex.toHexDigits(a23) + " ");
+            // System.out.println(hex.toHexDigits(a24) + " ");
+            // System.out.println();
 
             // Step mapping Chi as defined in section 3.2.4.
             long tmp0 = a0;
@@ -388,6 +495,33 @@ public abstract class SHA3 extends DigestBase {
 
             // Step mapping Iota as defined in section 3.2.5.
             a0 ^= RC_CONSTANTS[ir];
+            
+            // System.out.println(hex.toHexDigits(a0) + " ");
+            // System.out.println(hex.toHexDigits(a1) + " ");
+            // System.out.println(hex.toHexDigits(a2) + " ");
+            // System.out.println(hex.toHexDigits(a3) + " ");
+            // System.out.println(hex.toHexDigits(a4) + " ");
+            // System.out.println(hex.toHexDigits(a5) + " ");
+            // System.out.println(hex.toHexDigits(a6) + " ");
+            // System.out.println(hex.toHexDigits(a7) + " ");
+            // System.out.println(hex.toHexDigits(a8) + " ");
+            // System.out.println(hex.toHexDigits(a9) + " ");
+            // System.out.println(hex.toHexDigits(a10) + " ");
+            // System.out.println(hex.toHexDigits(a11) + " ");
+            // System.out.println(hex.toHexDigits(a12) + " ");
+            // System.out.println(hex.toHexDigits(a13) + " ");
+            // System.out.println(hex.toHexDigits(a14) + " ");
+            // System.out.println(hex.toHexDigits(a15) + " ");
+            // System.out.println(hex.toHexDigits(a16) + " ");
+            // System.out.println(hex.toHexDigits(a17) + " ");
+            // System.out.println(hex.toHexDigits(a18) + " ");
+            // System.out.println(hex.toHexDigits(a19) + " ");
+            // System.out.println(hex.toHexDigits(a20) + " ");
+            // System.out.println(hex.toHexDigits(a21) + " ");
+            // System.out.println(hex.toHexDigits(a22) + " ");
+            // System.out.println(hex.toHexDigits(a23) + " ");
+            // System.out.println(hex.toHexDigits(a24) + " ");
+            // System.out.println(ir + " ---");
         }
 
         stateArr[0] = a0; stateArr[1] = a1; stateArr[2] = a2; stateArr[3] = a3; stateArr[4] = a4;
@@ -396,7 +530,7 @@ public abstract class SHA3 extends DigestBase {
         stateArr[15] = a15; stateArr[16] = a16; stateArr[17] = a17; stateArr[18] = a18; stateArr[19] = a19;
         stateArr[20] = a20; stateArr[21] = a21; stateArr[22] = a22; stateArr[23] = a23; stateArr[24] = a24;
     }
-
+static java.util.HexFormat hex = java.util.HexFormat.of();
     public Object clone() throws CloneNotSupportedException {
         SHA3 copy = (SHA3) super.clone();
         copy.state = copy.state.clone();

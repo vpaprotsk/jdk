@@ -61,7 +61,7 @@ abstract class DigestBase extends MessageDigestSpi implements Cloneable {
     private final int digestLength;
 
     // size of the input to the compression function in bytes
-    protected final int blockSize;
+    protected int blockSize;
     // buffer to store partial blocks, blockSize bytes large
     // Subclasses should not access this array directly except possibly in their
     // implDigest() method. See MD5.java as an example.
@@ -144,7 +144,7 @@ abstract class DigestBase extends MessageDigestSpi implements Cloneable {
     }
 
     @IntrinsicCandidate
-    private int implCompressMultiBlock0(byte[] b, int ofs, int limit) {
+    protected int implCompressMultiBlock0(byte[] b, int ofs, int limit) {
         for (; ofs <= limit; ofs += blockSize) {
             implCompress(b, ofs);
         }

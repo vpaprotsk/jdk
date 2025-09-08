@@ -405,6 +405,8 @@
   static_field(StubRoutines,                _sha512_implCompressMB,                           address)                               \
   static_field(StubRoutines,                _sha3_implCompress,                               address)                               \
   static_field(StubRoutines,                _double_keccak,                                   address)                               \
+  static_field(StubRoutines,                _quad_keccak,                                     address)                               \
+  static_field(StubRoutines,                _eight_keccak,                                    address)                               \
   static_field(StubRoutines,                _sha3_implCompressMB,                             address)                               \
   static_field(StubRoutines,                _kyberNtt,                                        address)                               \
   static_field(StubRoutines,                _kyberInverseNtt,                                 address)                               \

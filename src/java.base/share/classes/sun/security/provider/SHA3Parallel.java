@@ -89,7 +89,24 @@ public class SHA3Parallel {
     }
 
     @IntrinsicCandidate
-    private static int doubleKeccak(long[] lanes0, long[] lanes1) {
+    public static int eightKeccak(long[] lanes0, long[] lanes1, long[] lanes2, long[] lanes3,
+    long[] lanes4, long[] lanes5, long[] lanes6, long[] lanes7) {
+        doubleKeccak(lanes0, lanes1);
+        doubleKeccak(lanes2, lanes3);
+        doubleKeccak(lanes4, lanes5);
+        doubleKeccak(lanes6, lanes7);
+        return 1;
+    }
+
+    @IntrinsicCandidate
+    public static int quadKeccak(long[] lanes0, long[] lanes1, long[] lanes2, long[] lanes3) {
+        doubleKeccak(lanes0, lanes1);
+        doubleKeccak(lanes2, lanes3);
+        return 1;
+    }
+
+    @IntrinsicCandidate
+    public static int doubleKeccak(long[] lanes0, long[] lanes1) {
         doubleKeccakJava(lanes0, lanes1);
         return 1;
     }
