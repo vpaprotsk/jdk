@@ -296,6 +296,7 @@ static address generate_sha3_implCompress_avx512(StubId stub_id,
   __ align(OptoLoopAlignment);
   __ BIND(rounds24_loop);
   
+  // Step mapping Theta as defined in section 3.2.1.
   // long c0 = a0^a5^a10^a15^a20;
   // long c1 = a1^a6^a11^a16^a21;
   // long c2 = a2^a7^a12^a17^a22;
@@ -366,6 +367,7 @@ static address generate_sha3_implCompress_avx512(StubId stub_id,
   __ vpternlogq(A19, 0x96, T0, C3, vector_len);
   __ vpternlogq(A24, 0x96, T0, C3, vector_len);
 
+  // Merged Step mapping Rho (section 3.2.2) and Pi (section 3.2.3)
   // long ay = Long.rotateLeft(a10, 3);
   // a10 = Long.rotateLeft(a1, 1);
   // a1 = Long.rotateLeft(a6, 44);
@@ -761,6 +763,7 @@ static address generate_sha3_implCompress_avx2(StubId stub_id,
   __ vmovdqa(Address(rsp, 0),        A21A23, vector_len);
   __ vmovdqa(Address(rsp, reg_size), A22A24, vector_len);
 
+  // Step mapping Theta as defined in section 3.2.1.
   // long c0 = a0^a5^a10^a15^a20;
   // long c1 = a1^a6^a11^a16^a21;
   // long c2 = a2^a7^a12^a17^a22;
