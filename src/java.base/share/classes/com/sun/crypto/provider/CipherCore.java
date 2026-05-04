@@ -101,7 +101,7 @@ final class CipherCore {
     /*
      * internal cipher engine
      */
-    private FeedbackCipher cipher;
+    public FeedbackCipher cipher;
 
     /*
      * the cipher mode

@@ -40,7 +40,7 @@ import jdk.internal.vm.annotation.IntrinsicCandidate;
  *
  * https://www.internationaljournalcorner.com/index.php/ijird_ojs/article/view/134688
  */
-final class AES_Crypt extends SymmetricCipher {
+final public class AES_Crypt extends SymmetricCipher {
 
     // Number of words in a block
     private static final int WB = 4;
@@ -1029,10 +1029,14 @@ final class AES_Crypt extends SymmetricCipher {
      */
     @IntrinsicCandidate
     private void implEncryptBlock(byte[] p, int po, byte[] c, int co) {
+        implEncryptBlockJava(p, po, c, co);
+    }
+
+    public void implEncryptBlockJava(byte[] p, int po, byte[] c, int co) {
         int ti0, ti1, ti2, ti3;
         int a0, a1, a2, a3;
         int w = K.length - WB;
-
+// java.util.HexFormat hex = java.util.HexFormat.of();
         a0 = ((p[po] & 0xFF) << 24) ^ ((p[po + 1] & 0xFF) << 16)
                 ^ ((p[po + 2] & 0xFF) << 8) ^ (p[po + 3] & 0xFF) ^ K[0];
         a1 = ((p[po + 4] & 0xFF) << 24) ^ ((p[po + 5] & 0xFF) << 16)
@@ -1041,7 +1045,8 @@ final class AES_Crypt extends SymmetricCipher {
                 ^ ((p[po + 10] & 0xFF) << 8) ^ (p[po + 11] & 0xFF) ^ K[2];
         a3 = ((p[po + 12] & 0xFF) << 24) ^ ((p[po + 13] & 0xFF) << 16)
                 ^ ((p[po + 14] & 0xFF) << 8) ^ (p[po + 15] & 0xFF) ^ K[3];
-
+// System.out.println("Key   : " + hex.toHexDigits(K[3],8) + hex.toHexDigits(K[2]) + hex.toHexDigits(K[1],8) + hex.toHexDigits(K[0],8));
+// System.out.println("Round0: " + hex.toHexDigits(a3,8) + hex.toHexDigits(a2,8) + hex.toHexDigits(a3,8) + hex.toHexDigits(a0,8));
         ti0 = T0[a0 >>> 24] ^ T1[(a1 >> 16) & 0xFF]
                 ^ T2[(a2 >> 8) & 0xFF] ^ T3[a3 & 0xFF] ^ K[4];
         ti1 = T0[a1 >>> 24] ^ T1[(a2 >> 16) & 0xFF]
@@ -1059,6 +1064,7 @@ final class AES_Crypt extends SymmetricCipher {
                 ^ T2[(ti0 >> 8) & 0xFF] ^ T3[ti1 & 0xFF] ^ K[10];
         a3 = T0[ti3 >>> 24] ^ T1[(ti0 >> 16) & 0xFF]
                 ^ T2[(ti1 >> 8) & 0xFF] ^ T3[ti2 & 0xFF] ^ K[11];
+// System.out.println("Round1: " + hex.toHexDigits(a3,8) + hex.toHexDigits(a2,8) + hex.toHexDigits(a3,8) + hex.toHexDigits(a0,8));
 
         ti0 = T0[a0 >>> 24] ^ T1[(a1 >> 16) & 0xFF]
                 ^ T2[(a2 >> 8) & 0xFF] ^ T3[a3 & 0xFF] ^ K[12];

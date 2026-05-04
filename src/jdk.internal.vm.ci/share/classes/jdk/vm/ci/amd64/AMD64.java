@@ -262,7 +262,7 @@ public class AMD64 extends Architecture {
         VZEROUPPER,
         AVX512_VPOPCNTDQ,
         AVX512_VPCLMULQDQ,
-        AVX512_VAES,
+        VAES,
         AVX512_VNNI,
         FLUSH,
         FLUSHOPT,

@@ -45,7 +45,7 @@ import java.util.Random;
 import java.util.concurrent.TimeUnit;
 
 
-@Fork(jvmArgs = {"-XX:+AlwaysPreTouch"}, value = 5)
+@Fork(jvmArgs = {"-XX:+AlwaysPreTouch", "--add-exports","java.base/com.sun.crypto.provider=ALL-UNNAMED"}, value = 5)
 @Warmup(iterations = 3, time = 3)
 @Measurement(iterations = 8, time = 2)
 @OutputTimeUnit(TimeUnit.SECONDS)

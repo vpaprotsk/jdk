@@ -46,7 +46,23 @@ public class AESBench extends CryptoBase {
     @Param({"128", "192", "256"})
     private int keyLength;
 
-    @Param({"" + 16 * 1024})
+    // @Param({"" + 16 * 1024})
+    
+    @Param({
+        "16",
+        "32",
+        "64",
+        "128",
+        "256",
+        "512",
+        "1024",
+        "2048",
+        "4096",
+        "8192",
+        "16384",
+        "32768",
+        "65536"
+    })
     private int dataSize;
 
     byte[][] data;
@@ -54,6 +70,9 @@ public class AESBench extends CryptoBase {
     Cipher encryptCipher;
     Cipher decryptCipher;
     int index = 0;
+
+    com.sun.crypto.provider.CounterMode cipher;
+    byte[] output;
 
     @Setup
     public void setup() throws NoSuchAlgorithmException, NoSuchPaddingException, InvalidKeyException, BadPaddingException, IllegalBlockSizeException, InvalidAlgorithmParameterException, InvalidParameterSpecException {
@@ -66,6 +85,14 @@ public class AESBench extends CryptoBase {
         decryptCipher.init(Cipher.DECRYPT_MODE, ks, encryptCipher.getParameters());
         data = fillRandom(new byte[SET_SIZE][dataSize]);
         encryptedData = fillEncrypted(data, encryptCipher);
+
+        cipher = new com.sun.crypto.provider.CounterMode(new com.sun.crypto.provider.AES_Crypt());
+        byte[] ivBytes = new byte[] {
+            11, 12, 13, 14, 15, 16, 17, 18,
+            19, 20, 21, 22, 23, 24, 25, 26
+        };
+        cipher.init(true, "AES", ks.getEncoded(), ivBytes);
+        output = new byte[dataSize];
     }
 
     @Benchmark
@@ -80,5 +107,17 @@ public class AESBench extends CryptoBase {
         byte[] e = encryptedData[index];
         index = (index +1) % SET_SIZE;
         return decryptCipher.doFinal(e);
+    }
+
+    private long ctr;
+    @Benchmark
+    public byte[] encryptCTR() throws BadPaddingException, IllegalBlockSizeException {
+        byte[] d = data[index];
+        index = (index +1) % SET_SIZE;
+        // cipher.implCrypt(d, 0, d.length, output, 0);
+        // index = (index +1) % SET_SIZE;
+        cipher.implCrypt(d, 0, d.length, output, 0);
+        cipher.reset();
+        return output;
     }
 }

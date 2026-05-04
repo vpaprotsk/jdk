@@ -204,33 +204,684 @@ static address counter_mask_add_1234_addr() {
     return (address)COUNTER_MASK_ADD_1234;
 }
 
-// AES intrinsic stubs
+ATTRIBUTE_ALIGNED(64) static const uint64_t COUNTER_ADD[] = {
+  //
+  0x0000000000000000ULL, 0x0000000000000001ULL,
+  0xdeadbeef00000000ULL, 0xdeadbeef00000000ULL,
+  
+  // [0:15] Sequence 0-8
+  0x0000000000000000ULL, 0x0000000000000002ULL,
+  0x0000000000000001ULL, 0x0000000000000003ULL,
 
-void StubGenerator::generate_aes_stubs() {
-  if (UseAESIntrinsics) {
-    StubRoutines::_aescrypt_encryptBlock = generate_aescrypt_encryptBlock();
-    StubRoutines::_aescrypt_decryptBlock = generate_aescrypt_decryptBlock();
-    StubRoutines::_cipherBlockChaining_encryptAESCrypt = generate_cipherBlockChaining_encryptAESCrypt();
-    if (VM_Version::supports_avx512_vaes() &&  VM_Version::supports_avx512vl() && VM_Version::supports_avx512dq() ) {
-      StubRoutines::_cipherBlockChaining_decryptAESCrypt = generate_cipherBlockChaining_decryptVectorAESCrypt();
-      StubRoutines::_electronicCodeBook_encryptAESCrypt = generate_electronicCodeBook_encryptAESCrypt();
-      StubRoutines::_electronicCodeBook_decryptAESCrypt = generate_electronicCodeBook_decryptAESCrypt();
-      StubRoutines::_galoisCounterMode_AESCrypt = generate_galoisCounterMode_AESCrypt();
+  // [0:15] Sequence 0-8
+  0x0000000000000000ULL, 0x0000000000000004ULL,
+  0x0000000000000001ULL, 0x0000000000000005ULL,
+  0x0000000000000002ULL, 0x0000000000000006ULL,
+  0x0000000000000003ULL, 0x0000000000000007ULL,
+};
+
+static address counter_adder_addr(int offset, int vector_len) {
+  switch (vector_len) {
+    case Assembler::AVX_128bit: return (address)COUNTER_ADD;
+    case Assembler::AVX_256bit: return (address)&COUNTER_ADD[4];
+    case Assembler::AVX_512bit: return (address)&COUNTER_ADD[8];
+  }
+  assert(false, "unreachable");
+  return 0;  
+}
+
+class AESAssembler : public MacroAssembler {
+public:
+  AESAssembler(Assembler *as) : MacroAssembler(as->code()){}
+
+  // ctr = ctr_i-n + [ b b b ]
+  // ctr += [ b b b ]
+  // ctr += [ 0 1 2 ]
+  // Why VPANDN to detect Carry bit? Proof:
+  // Truth table for the Full Adder (for the MSB of the lower 64-bit limb)
+  // ctr  i  Cin   Out  Cout
+  //  0   0   0  |  0    0
+  //  0   0   1  |  1    0  
+  //  0   1   0  |  1    0   (impossible; i=1)
+  //  0   1   1  |  0    1   (impossible; i=1)
+  //  1   0   0  |  1    0
+  //  1   0   1  |  0    1
+  //  1   1   0  |  0    1   (impossible; i=1)
+  //  1   1   1  |  1    1   (impossible; i=1)
+  //
+  // Remove impossible i values and unknown Cin, copy the rest:
+  // ctr Out   Cout
+  //  0   0  |  0
+  //  0   1  |  0  
+  //  1   1  |  0
+  //  1   0  |  1
+  // Therefore: Cout = ctr AND ~Out (Q.E.D.)
+  void add128(XMMRegister CtrLow, XMMRegister CtrHigh, XMMRegister Increment, XMMRegister Tmp1, XMMRegister Tmp2, XMMRegister Tmp3, int vector_len) {
+    assert(UseAVX > 0 || vector_len == Assembler::AVX_128bit, "Invalid");
+    XMMRegister Carry = Tmp1;
+    XMMRegister Zero = Tmp2;
+    if (vector_len == Assembler::AVX_512bit) {
+      vpternlogq(Carry, 0xFF, Carry, Carry, vector_len);
+      vpaddq(CtrLow, CtrLow, Increment, vector_len);
+      evpcmpuq(k1, CtrLow, Increment, Assembler::lt, vector_len);
+      evpsubq(CtrHigh, k1, CtrHigh, Carry, true, vector_len);
+    } else if (UseAVX > 0) {
+      vpxor(Zero, Zero, Zero, vector_len);
+      vmovdqu(Carry, CtrLow, vector_len);
+      vpaddq(CtrLow, CtrLow, Increment, vector_len);
+      vpandn(Carry, CtrLow, Carry, vector_len);
+      vpcmpgtq(Carry, Zero, Carry, vector_len);
+      vpsubq(CtrHigh, CtrHigh, Carry, vector_len);
     } else {
-      StubRoutines::_cipherBlockChaining_decryptAESCrypt = generate_cipherBlockChaining_decryptAESCrypt_Parallel();
-      if (VM_Version::supports_avx2()) {
-          StubRoutines::_galoisCounterMode_AESCrypt = generate_avx2_galoisCounterMode_AESCrypt();
+      pxor(Zero, Zero);
+      movdqu(Tmp3, CtrLow);
+      paddq(CtrLow, Increment);
+      movdqu(Carry, CtrLow);
+      pandn(Carry, Tmp3);
+      pcmpgtq(Zero, Carry);
+      psubq(CtrHigh, Zero);
+    }
+  }
+
+  void vaesenc(XMMRegister dst, XMMRegister key, XMMRegister scratch, int vector_len) {
+    assert(VM_Version::supports_vaes() || vector_len == Assembler::AVX_128bit, "Invalid");
+    if (VM_Version::supports_vaes()) {
+      MacroAssembler::vaesenc(dst, dst, key, vector_len);
+    } else if (key->encoding() > 15 && VM_Version::supports_evex() && !VM_Version::supports_vaes()) {
+      // aesenc(last) does not support upper bank registers but we still want to use the extra registers
+      assert(scratch->encoding() < 16, "Invalid scratch");
+      vmovdqu(scratch, key, vector_len);
+      aesenc(dst, scratch);
+    } else {
+      aesenc(dst, key);
+    }
+  }
+
+  void vaesenclast(XMMRegister dst, XMMRegister key, XMMRegister scratch, int vector_len) {
+    assert(VM_Version::supports_vaes() || vector_len == Assembler::AVX_128bit, "Invalid");
+    if (VM_Version::supports_vaes()) {
+      MacroAssembler::vaesenclast(dst, dst, key, vector_len);
+    } else if (key->encoding() > 15 && VM_Version::supports_evex() && !VM_Version::supports_vaes()) {
+      // aesenc(last) does not support upper bank registers but we still want to use the extra registers
+      assert(scratch->encoding() < 16, "Invalid scratch");
+      vmovdqu(scratch, key, vector_len);
+      aesenclast(dst, scratch);
+    } else {
+      aesenclast(dst, key);
+    }
+  }
+
+  void aesround(XMMRegister dst, XMMRegister key, bool first, bool last, XMMRegister scratch, int vector_len) {
+    if (first) {
+      vpxor(dst, dst, key, vector_len);
+    } else if (!last) { 
+      vaesenc(dst, key, scratch, vector_len);
+    } else {
+      vaesenclast(dst, key, scratch, vector_len);
+    }
+  }
+
+  using MacroAssembler::vpbroadcastq;
+  void vpbroadcastq(XMMRegister dst, int val, int vector_len, Register scratch) {
+    movq(scratch, val);
+    if (vector_len == Assembler::AVX_512bit) {
+      evpbroadcastq(dst, scratch, vector_len);
+    } else if (vector_len == Assembler::AVX_256bit) {
+      movq(dst, scratch);
+      MacroAssembler::vpbroadcastq(dst, dst, vector_len);
+    } else if (vector_len == Assembler::AVX_128bit) {
+      movq(dst, scratch);
+      movddup(dst, dst);
+    }
+  }
+
+  void vpbroadcastq(XMMRegister dst, Address src, int vector_len) {
+    if (vector_len == Assembler::AVX_128bit) {
+      movq(dst, src);
+      movddup(dst, dst);
+    } else {
+      MacroAssembler::vpbroadcastq(dst, src, vector_len);
+    }
+  }
+
+  void vbroadcasti128(XMMRegister dst, Address src, int vector_len) {
+    if (vector_len == Assembler::AVX_512bit) {
+      evbroadcasti64x2(dst, src, vector_len);
+    } else if (vector_len == Assembler::AVX_256bit) {
+      MacroAssembler::vbroadcasti128(dst, src, vector_len);
+    } else {
+      movdqu(dst, src);
+    }
+  }
+
+  void vbroadcasti128(XMMRegister dst, XMMRegister src, int vector_len) {
+    if (vector_len == Assembler::AVX_512bit) {
+      evshufi64x2(dst, src, src, 0b00000000, vector_len);
+    } else if (vector_len == Assembler::AVX_256bit) {
+      vinserti128(dst, src, src, 1);
+    } else if (vector_len == Assembler::AVX_128bit && dst != src){
+      movdqu(dst, src);
+    }
+  }
+
+  void vpunpcklqdq(XMMRegister dst, XMMRegister nds, XMMRegister src, int vector_len) {
+    assert(UseAVX > 0 || vector_len == Assembler::AVX_128bit, "Invalid");
+    if (UseAVX > 0) {
+      MacroAssembler::vpunpcklqdq(dst, nds, src, vector_len);
+    } else {
+      if (dst != nds) {
+        movdqu(dst, nds);
+      }
+      punpcklqdq(dst, src);
+    }
+  }
+
+  void vpunpckhqdq(XMMRegister dst, XMMRegister nds, XMMRegister src, int vector_len) {
+    assert(UseAVX > 0 || vector_len == Assembler::AVX_128bit, "Invalid");
+    if (VM_Version::supports_avx()) {
+      MacroAssembler::vpunpckhqdq(dst, nds, src, vector_len);
+    } else {
+      if (dst != nds) {
+        movdqu(dst, nds);
+      }
+      punpckhqdq(dst, src);
+    }
+  }
+
+  void vpshufb(XMMRegister dst, XMMRegister nds, XMMRegister src, int vector_len) {
+    assert(UseAVX > 0 || vector_len == Assembler::AVX_128bit, "Invalid");
+    if (UseAVX > 0) {
+      MacroAssembler::vpshufb(dst, nds, src, vector_len);
+    } else {
+      if (dst != nds) {
+        movdqu(dst, nds);
+      }
+      pshufb(dst, src);
+    }
+  }
+
+  void vpxor(XMMRegister dst, XMMRegister nds, Address src, int vector_len) {
+    assert(UseAVX > 0 || vector_len == Assembler::AVX_128bit, "Invalid");
+    if (UseAVX > 0) {
+      MacroAssembler::vpxor(dst, nds, src, vector_len);
+    } else {
+      if (dst != nds) {
+        movdqu(dst, src);
+        pxor(dst, nds);
+      } else {
+        movdqu(xmm1, src);
+        pxor(dst, xmm1);
+      }
+      //pxor(dst, src);
+    }
+  }
+
+  void vpxor(XMMRegister dst, XMMRegister nds, XMMRegister src, int vector_len) {
+    assert(UseAVX > 0 || vector_len == Assembler::AVX_128bit, "Invalid");
+    if (UseAVX > 0) {
+      MacroAssembler::vpxor(dst, nds, src, vector_len);
+    } else {
+      if (dst != nds) {
+        movdqu(dst, nds);
+      }
+      pxor(dst, src);
+    }
+  }
+};
+
+// Inputs:           Windows    |   Linux
+//   src        = rcx (c_rarg0) | rsi (c_rarg0)
+//   dst        = rdx (c_rarg1) | rdi (c_rarg1)
+//   key        = r8  (c_rarg2) | rdx (c_rarg2)
+//   ctr        = r9  (c_rarg3) | rcx (c_rarg3)
+//   len        = rsi           | r8  (c_rarg4)
+//   saved ctr  = rdi           | r9  (c_rarg5)
+//   used addr  = r10           | r10
+//   used       = r11           | r11
+
+// Arguments:
+//
+// Inputs:
+//   c_rarg0   - source byte array address
+//   c_rarg1   - destination byte array address
+//   c_rarg2   - K (key) in little endian int32 array
+//   c_rarg3   - counter vector byte array address (big endian) 
+//   Linux
+//     c_rarg4   -          input length
+//     c_rarg5   -          saved encryptedCounter start
+//     rbp + 6 * wordSize - saved used length
+//   Windows
+//     rbp + 6 * wordSize - input length
+//     rbp + 7 * wordSize - saved encryptedCounter start
+//     rbp + 8 * wordSize - saved used length
+//
+// Output:
+//   rax       - input length
+static address generate_counterModeAES(StubGenerator *stubgen,
+                            int vector_len, AESAssembler *_masm, int parallel) {
+  assert(UseAES, "need AES instruction support");
+
+  __ align(CodeEntryAlignment);
+  StubCodeMark mark(stubgen, StubId::stubgen_counterMode_AESCrypt_id);
+  address start = __ pc();
+  __ enter();
+
+  // Save Registers and deal with arguments first
+  __ push_ppx(r12);
+  __ push_ppx(r13);
+  __ push_ppx(r14);
+
+  const Register src = c_rarg0; // source array address
+  const Register dst = c_rarg1; // destination array address
+  const Register key = c_rarg2; // key array address
+  const Register ctr = c_rarg3; // counter byte array initialized from counter array address
+                                // and updated with the incremented counter in the end
+#ifdef _WIN64
+  const Register len = rsi;     // c_rarg4
+  const Register savedCtr = rdi;// c_rarg5
+  const Register usedAddr = r10;// c_rarg6
+  
+  __ push_ppx(rsi);
+  __ push_ppx(rdi);
+  __ movl(len,        Address(rbp, 6 * wordSize));
+  __ movptr(savedCtr, Address(rbp, 7 * wordSize));
+  __ movptr(usedAddr, Address(rbp, 8 * wordSize));
+#else
+  const Register len      = c_rarg4;
+  const Register savedCtr = c_rarg5;
+  const Register usedAddr = r10; // c_rarg6
+
+  __ movptr(usedAddr, Address(rbp, 2 * wordSize));
+#endif
+
+  const Register pos = rax; // also return value
+  const Register used = r11;
+  const Register keyLength = r12;
+  const Register nextCtrLow = r12; //keyLength
+  const Register nextCtrHigh = r13;
+  const Register tmp = r14;
+
+  Label UsedLoop, UsedLoopDone, LastSet, LastReg, Last2Block, LastBlock;
+  Label Last4Byte, Last2Byte, LastByte, StoreUsed, ExitLabel, SingleBlock;
+
+  // Need to allocate:
+  //              AVX_512bit | AVX_256bit&AVX_128bit 
+  // - 5 Temps         Regs  | Regs
+  // - (parallel) CTRs Regs  | Regs
+  // - 15 keys         Regs  | Regs&Stack
+
+  // Constants/parameters
+  //int parallel = 2; // can be changed, but would need to add some constants in counter_adder_addr
+  assert(parallel % 2 == 0, "invalid parallel");
+  int totalRegs = vector_len == Assembler::AVX_512bit || VM_Version::supports_avx512vl() ? 32 : 16;
+  int keyRegs = totalRegs - 5 - parallel;
+  keyRegs = keyRegs > 15 ? 15 : keyRegs;
+  int blocksPerReg = vector_len == Assembler::AVX_512bit ? 4 :
+                     vector_len == Assembler::AVX_256bit ? 2 : 1;
+
+  // Each key (that doesnt have a register) takes 16 bytes
+  int totalStackBytes = 16*(15 - keyRegs);
+
+  // XMMRegister allocation
+  XMMRegister Increment = xmm0;
+  XMMRegister Tmp = xmm1;
+  XMMRegister CtrShuf = xmm2;
+  XMMRegister CtrLow = xmm3;
+  XMMRegister CtrHigh = xmm4;
+  XMMRegister Ctr[parallel];
+  XMMRegister Keys[15];
+  XMMRegister _next = xmm5;
+  for (int i = 0; i<parallel; i++, _next = _next->successor()) {
+    Ctr[i] = _next;
+  }
+  for (int i = 0; i<15 && _next->is_valid(); i++, _next = _next->successor()) {
+    Keys[i] = _next;
+  }
+
+  if (totalStackBytes > 0) {
+    // Buy and align stack
+    __ push_ppx(rbp);
+    __ movq(rbp, rsp);
+    __ andq(rsp, -64);
+    __ subptr(rsp, totalStackBytes); // Enough to store all keys
+  }
+
+  __ movl(pos, len);
+  __ cmpl(len, 0);
+  __ jcc(Assembler::belowEqual, ExitLabel);
+  __ movl(used, Address(usedAddr, 0));
+  __ movl(pos, 0);
+
+  // use up any counter already created by previous encryption invocation
+  // its at most 15 bytes
+  // while (len-- >0 && used >0) {out[pos++] = in[pos] ^ encryptedCounter[used++];}
+  __ align(OptoLoopAlignment);
+  __ BIND(UsedLoop);
+  __ cmpl(used, 16);
+  __ jcc(Assembler::aboveEqual, UsedLoopDone);
+  __ movb(tmp, Address(savedCtr, used));
+  __ xorb(tmp, Address(src, pos));
+  __ movb(Address(dst, pos), tmp);
+  __ increment(pos);
+  __ increment(used);
+  __ decrement(len);
+  __ jcc(Assembler::notZero, UsedLoop);
+  __ jmp(StoreUsed);
+  __ BIND(UsedLoopDone);
+  __ movl(used, 16);
+
+  __ vmovdqu(CtrShuf, ExternalAddress(counter_shuffle_mask_addr()), vector_len, tmp /*rscratch*/); //BE->LE
+  __ cmpl(len, 16); // Specialize single-block encryption
+  __ jcc(Assembler::belowEqual, SingleBlock);
+
+  /********************** INIT COUNTERS **********************/
+  // initialize enough counters for parallel processing
+  // (counters always in registers)
+  BLOCK_COMMENT("Init counters");
+  __ vpbroadcastq(CtrLow, Address(ctr, 8), vector_len);
+  __ vpbroadcastq(CtrHigh, Address(ctr), vector_len);
+  __ vpshufb(CtrLow, CtrLow, CtrShuf, vector_len); //BE->LE
+  __ vpshufb(CtrHigh, CtrHigh, CtrShuf, vector_len); //BE->LE
+  __ pextrq(nextCtrLow, CtrLow, 0x0);
+  __ pextrq(nextCtrHigh, CtrHigh, 0x0);
+  __ movl(tmp, len);
+  __ increment(tmp, 15);
+  __ shrl(tmp, 4);
+  __ addq(nextCtrLow, tmp);
+  __ adcq(nextCtrHigh, 0);
+  __ bswapq(nextCtrLow);
+  __ bswapq(nextCtrHigh);
+  __ movq(Address(ctr, 8), nextCtrLow);
+  __ movq(Address(ctr), nextCtrHigh);
+  __ movl(keyLength, Address(key, arrayOopDesc::length_offset_in_bytes() - arrayOopDesc::base_offset_in_bytes(T_INT)));
+
+  // First iteration Incremenent is aranged for the unpack to work
+  // After first iteration, Increment is constant
+  __ vmovdqa(Increment, ExternalAddress(counter_adder_addr(0, vector_len)), vector_len, tmp /*rscratch*/);
+  for (int i = 0, first = true; i<parallel; i += 2, first=false) {
+    __ add128(CtrLow, CtrHigh, Increment, Tmp, Ctr[i], Ctr[i+1], vector_len);
+    __ vpunpcklqdq(Ctr[i], CtrLow, CtrHigh, vector_len);
+    __ vpunpckhqdq(Ctr[i+1], CtrLow, CtrHigh, vector_len);
+    __ vpshufb(Ctr[i], Ctr[i], CtrShuf, vector_len);
+    __ vpshufb(Ctr[i+1], Ctr[i+1], CtrShuf, vector_len);
+    if (first && parallel>2) {
+      __ vpbroadcastq(Increment, 2*blocksPerReg, vector_len, tmp);
+    }
+  }
+
+  /********************** INIT KEYS & FIRST AES ITERATION  **********************/
+  // convert keys to little-endian (into registers and onto stack)
+  BLOCK_COMMENT("INIT Keys");
+  __ movdqu(Increment, ExternalAddress(key_shuffle_mask_addr()), tmp /*rscratch*/);
+  for (int round = 0; round < 10; round++) { // << LOOP Starts here!!!
+    XMMRegister KeyReg = round < keyRegs ? Keys[round] : Tmp;
+    __ movdqu(KeyReg, Address(key, round*16));
+    __ pshufb(KeyReg, Increment);
+    
+    __ vbroadcasti128(KeyReg, KeyReg, vector_len);
+    if (round >= keyRegs) {
+      int stackOffset = 16*(round - keyRegs);
+      __ movdqu(Address(rsp, stackOffset), KeyReg);
+    }
+    for (int i = 0; i<parallel; i++) {
+      __ aesround(Ctr[i], KeyReg, round == 0, false, Tmp, vector_len);
+    }
+  }
+  
+  char buffer[64];
+  for (int keyRounds = 11; keyRounds <= 15; keyRounds +=2) { // 11, 13, 15
+    Label NextKeySize, EncryptLoop;
+
+    __ cmpl(keyLength, 4*keyRounds); // map {11, 13, 15}->{44, 52, 60}
+    __ jcc(Assembler::above, NextKeySize);
+
+    /********************** LAST KEYS & FIRST AES ITERATION **********************/
+    // convert keys to little-endian (into registers and onto stack)
+    os::snprintf_checked(buffer, sizeof(buffer), "(%d Rounds) INIT Keys tail", keyRounds);
+    BLOCK_COMMENT(buffer);
+    // Increment contains key_shuffle_mask_addr
+    for (int round = 10; round < keyRounds; round++) { // << LOOP Continues here!!!
+      XMMRegister KeyReg = round < keyRegs ? Keys[round] : Tmp;
+      __ movdqu(KeyReg, Address(key, round*16));
+      __ pshufb(KeyReg, Increment);
+
+      __ vbroadcasti128(KeyReg, KeyReg, vector_len);
+      if (round >= keyRegs) {
+        int stackOffset = 16*(round - keyRegs);
+        __ movdqu(Address(rsp, stackOffset), KeyReg);
+      }
+      for (int i = 0; i<parallel; i++) {
+        __ aesround(Ctr[i], KeyReg, round == 0, round == keyRounds - 1, Tmp, vector_len);
       }
     }
+
+    // Restore Ctr Increment
+    __ vpbroadcastq(Increment, 2*blocksPerReg, vector_len, tmp); // 2 Ctrs at a time
+    __ cmpl(len, parallel*blocksPerReg*16);
+    __ jcc(Assembler::below, LastSet); // Not enough to do a full iteration, break
+    
+    BLOCK_COMMENT("XOR Data and Increment Counters for Next iteration");
+    for (int i = 0; i<parallel; i+=2) {
+      __ vpxor(Ctr[i], Ctr[i], Address(src, pos, Address::times_1, i*blocksPerReg*16), vector_len);
+      __ vmovdqu(Address(dst, pos, Address::times_1, i*blocksPerReg*16), Ctr[i], vector_len);
+      __ vpxor(Ctr[i+1], Ctr[i+1], Address(src, pos, Address::times_1, (i+1)*blocksPerReg*16), vector_len);
+      __ vmovdqu(Address(dst, pos, Address::times_1, (i+1)*blocksPerReg*16), Ctr[i+1], vector_len);
+      
+      __ add128(CtrLow, CtrHigh, Increment, Tmp, Ctr[i], Ctr[i+1], vector_len);
+      __ vpunpcklqdq(Ctr[i], CtrLow, CtrHigh, vector_len);
+      __ vpunpckhqdq(Ctr[i+1], CtrLow, CtrHigh, vector_len);
+      __ vpshufb(Ctr[i], Ctr[i], CtrShuf, vector_len);
+      __ vpshufb(Ctr[i+1], Ctr[i+1], CtrShuf, vector_len);
+    }
+    __ increment(pos, parallel*blocksPerReg*16);
+    __ decrement(len, parallel*blocksPerReg*16);
+    __ jcc(Assembler::zero, StoreUsed); // Exactly on the boundary, exit
+
+    /********************** ENCRYPTION LOOP **********************/
+    __ align(OptoLoopAlignment);
+    __ BIND(EncryptLoop);
+    for (int round = 0; round < keyRounds; round++) {
+      os::snprintf_checked(buffer, sizeof(buffer), "round %d", round);
+      BLOCK_COMMENT(buffer);
+      XMMRegister KeyReg = round < keyRegs ? Keys[round] : Tmp;
+      if (round >= keyRegs) {
+        int stackOffset = 16*(round - keyRegs);
+        __ vbroadcasti128(KeyReg, Address(rsp, stackOffset), vector_len);
+      }
+      for (int i = 0; i<parallel; i++) {
+        __ aesround(Ctr[i], KeyReg, round == 0, round == keyRounds - 1, Tmp, vector_len);
+      }
+    }
+    __ cmpl(len, parallel*blocksPerReg*16);
+    __ jcc(Assembler::below, LastSet); // Not enough to do a full iteration, break
+    
+    BLOCK_COMMENT("XOR Data and Increment Counters for Next iteration");
+    for (int i = 0; i<parallel; i+=2) {
+      __ vpxor(Ctr[i], Ctr[i], Address(src, pos, Address::times_1, i*blocksPerReg*16), vector_len);
+      __ vmovdqu(Address(dst, pos, Address::times_1, i*blocksPerReg*16), Ctr[i], vector_len);
+      __ vpxor(Ctr[i+1], Ctr[i+1], Address(src, pos, Address::times_1, (i+1)*blocksPerReg*16), vector_len);
+      __ vmovdqu(Address(dst, pos, Address::times_1, (i+1)*blocksPerReg*16), Ctr[i+1], vector_len);
+      
+      __ add128(CtrLow, CtrHigh, Increment, Tmp, Ctr[i], Ctr[i+1], vector_len);
+      __ vpunpcklqdq(Ctr[i], CtrLow, CtrHigh, vector_len);
+      __ vpunpckhqdq(Ctr[i+1], CtrLow, CtrHigh, vector_len);
+      __ vpshufb(Ctr[i], Ctr[i], CtrShuf, vector_len);
+      __ vpshufb(Ctr[i+1], Ctr[i+1], CtrShuf, vector_len);
+    }
+    __ increment(pos, parallel*blocksPerReg*16);
+    __ decrement(len, parallel*blocksPerReg*16);
+    __ jcc(Assembler::notZero, EncryptLoop);
+    __ jmp(StoreUsed); // Exactly on the boundary, exit
+
+    __ bind(NextKeySize);
   }
 
-  if (UseAESCTRIntrinsics) {
-    if (VM_Version::supports_avx512_vaes() && VM_Version::supports_avx512bw() && VM_Version::supports_avx512vl()) {
-      StubRoutines::_counterMode_AESCrypt = generate_counterMode_VectorAESCrypt();
+  XMMRegister LastCtr = Keys[0];     // "Used" (Encrypted CTR) will be inside this register
+
+  __ BIND(SingleBlock); // Special-case 16-and-below
+  __ movdqu(LastCtr, Address(ctr));
+  __ pextrq(nextCtrLow, LastCtr, 0x1);
+  __ pextrq(nextCtrHigh, LastCtr, 0x0);
+  __ bswapq(nextCtrLow);
+  __ bswapq(nextCtrHigh);
+  __ addq(nextCtrLow, 1);
+  __ adcq(nextCtrHigh, 0);
+  __ bswapq(nextCtrLow);
+  __ bswapq(nextCtrHigh);
+  __ pinsrq(CtrLow, nextCtrLow, 0x1);
+  __ pinsrq(CtrLow, nextCtrHigh, 0x0);
+  __ movl(keyLength, Address(key, arrayOopDesc::length_offset_in_bytes() - arrayOopDesc::base_offset_in_bytes(T_INT)));
+  __ movdqu(Increment, ExternalAddress(key_shuffle_mask_addr()), tmp /*rscratch*/);
+  
+  for (int keyRounds = 11; keyRounds <= 15; keyRounds +=2) { // 11, 13, 15
+    Label NextKeySize;
+
+    __ cmpl(keyLength, 4*keyRounds); // map {11, 13, 15}->{44, 52, 60}
+    __ jcc(Assembler::above, NextKeySize);
+
+    // convert keys to little-endian (into registers and onto stack)
+    os::snprintf_checked(buffer, sizeof(buffer), "(%d Rounds) INIT Keys tail", keyRounds);
+    BLOCK_COMMENT(buffer);
+    // Increment contains key_shuffle_mask_addr
+    XMMRegister KeyReg = Keys[1];
+    for (int round = 0; round < keyRounds; round++) {
+      __ movdqu(KeyReg, Address(key, round*16));
+      __ pshufb(KeyReg, Increment);
+      __ aesround(LastCtr, KeyReg, round == 0, round == keyRounds - 1, Tmp, Assembler::AVX_128bit);
+    }
+    __ movdqu(Address(ctr), CtrLow); // next clear ctr
+    __ vpxor(KeyReg, KeyReg, KeyReg, Assembler::AVX_128bit); // zero-out key
+    __ vpxor(CtrLow, CtrLow, CtrLow, Assembler::AVX_128bit); // next counter
+    __ cmpl(len, 16);
+    __ jcc(Assembler::below, LastBlock);
+    __ vpxor(LastCtr, LastCtr, Address(src, pos, Address::times_1, 0), Assembler::AVX_128bit);
+    __ vmovdqu(Address(dst, pos, Address::times_1, 0), LastCtr, Assembler::AVX_128bit);
+    __ increment(pos, 16);
+    __ jmp(StoreUsed);
+    __ bind(NextKeySize);
+  }
+
+  /********************** TAIL ENCRYPTION **********************/
+  // Process LastSet of parallel registers
+  // - End of data somewhere "inside" the register set
+  // - Store partially-used encrypted counter
+  __ BIND(LastSet);
+  for (int i = 0; true; i++) {
+    __ vmovdqu(LastCtr, Ctr[i], vector_len);
+    if (i==parallel-1) { break; } // last iteration is guaranteed to be partial
+    __ cmpl(len, blocksPerReg*16);
+    __ jcc(Assembler::below, LastReg);
+
+    __ vpxor(Ctr[i], Ctr[i], Address(src, pos, Address::times_1, 0), vector_len);
+    __ vmovdqu(Address(dst, pos, Address::times_1, 0), Ctr[i], vector_len);
+    __ increment(pos, blocksPerReg*16);
+    __ decrement(len, blocksPerReg*16); // 127-96 95-64 63-32 31-0
+  }
+
+  __ BIND(LastReg);
+  for (int i = 0; i<parallel; i++, _next = _next->successor()) {
+    __ vpxor(Ctr[i], Ctr[i], Ctr[i], vector_len);
+  }
+  for (int round = 1; round < 15; round++) { // LastCtr = Keys[0] !!
+    if (round >= keyRegs) {
+      int stackOffset = 16*(round - keyRegs);
+      __ movdqu(Address(rsp, stackOffset), Ctr[0]); //already zeroed out 
     } else {
-      StubRoutines::_counterMode_AESCrypt = generate_counterMode_AESCrypt_Parallel();
+      __ vpxor(Keys[round], Keys[round], Keys[round], vector_len);
     }
   }
+
+  // Process last 'incomplete' register
+  if (blocksPerReg == 4) { // Assembler::AVX_512bit
+    __ cmpl(len, 32);
+    __ jcc(Assembler::below, Last2Block);
+    __ vpxor(Tmp, LastCtr, Address(src, pos, Address::times_1, 0), Assembler::AVX_256bit);
+    __ vmovdqu(Address(dst, pos, Address::times_1, 0), Tmp, Assembler::AVX_256bit);
+    __ evshufi64x2(LastCtr, LastCtr, LastCtr, 0b00001110, Assembler::AVX_512bit);
+    __ increment(pos, 32);
+    __ decrement(len, 32);
+  }
+  __ BIND(Last2Block);
+  if (blocksPerReg >= 2) { // Assembler::AVX_256bit
+    __ cmpl(len, 16);
+    __ jcc(Assembler::below, LastBlock);
+    __ vpxor(Tmp, LastCtr, Address(src, pos, Address::times_1, 0), Assembler::AVX_128bit);
+    __ vmovdqu(Address(dst, pos, Address::times_1, 0), Tmp, Assembler::AVX_128bit);
+    __ vextractf128(LastCtr, LastCtr, 1);
+    __ increment(pos, 16);
+    __ decrement(len, 16);
+  }
+
+  __ BIND(LastBlock);
+  __ cmpl(len, 0);
+  __ jcc(Assembler::equal, StoreUsed);
+  // Store current Encrypted counter
+  __ movl(used, 0);
+  __ movdqu(Address(savedCtr), LastCtr);
+
+  Register lastCtr = keyLength;
+  __ pextrq(lastCtr, LastCtr, 0);
+  __ cmpl(len, 8);
+  __ jcc(Assembler::below, Last4Byte);
+  __ xorq(lastCtr, Address(src, pos, Address::times_1, 0));
+  __ movq(Address(dst, pos, Address::times_1, 0), lastCtr);
+  __ pextrq(lastCtr, LastCtr, 1);
+  __ increment(pos, 8);
+  __ increment(used, 8);
+  __ decrement(len, 8);
+
+  __ BIND(Last4Byte);
+  __ cmpl(len, 4);
+  __ jcc(Assembler::below, Last2Byte);
+  __ movl(tmp, lastCtr);
+  __ xorl(tmp, Address(src, pos, Address::times_1, 0));
+  __ movl(Address(dst, pos, Address::times_1, 0), tmp);
+  __ shrq(lastCtr, 32);
+  __ increment(pos, 4);
+  __ increment(used, 4);
+  __ decrement(len, 4);
+
+  __ BIND(Last2Byte);
+  __ cmpl(len, 2);
+  __ jcc(Assembler::below, LastByte);
+  __ movl(tmp, lastCtr);
+  __ xorw(tmp, Address(src, pos, Address::times_1, 0));
+  __ movw(Address(dst, pos, Address::times_1, 0), tmp);
+  __ shrl(lastCtr, 16);
+  __ increment(pos, 2);
+  __ increment(used, 2);
+  __ decrement(len, 2);
+  
+  __ BIND(LastByte);
+  __ cmpl(len, 1);
+  __ jcc(Assembler::below, StoreUsed);
+  __ xorb(lastCtr, Address(src, pos, Address::times_1, 0));
+  __ movb(Address(dst, pos, Address::times_1, 0), lastCtr);
+  __ increment(pos, 1);
+  __ increment(used, 1);
+
+  __ BIND(StoreUsed);
+  __ movl(Address(usedAddr, 0), used);
+
+  // Cleanup
+  __ vpxor(LastCtr, LastCtr, LastCtr, vector_len);
+
+  __ BIND(ExitLabel);
+  if (totalStackBytes > 0) {
+    __ movq(rsp, rbp);
+    __ pop_ppx(rbp);
+  }
+#ifdef _WIN64
+  __ pop_ppx(rdi);
+  __ pop_ppx(rsi);
+#endif
+  __ pop_ppx(r14);  
+  __ pop_ppx(r13);
+  __ pop_ppx(r12);
+
+  __ leave(); // required for proper stackwalking of RuntimeStub frame
+  __ ret(0);
+  return start;
 }
 
 // Vector AES Galois Counter Mode implementation.
@@ -318,6 +969,60 @@ address StubGenerator::generate_galoisCounterMode_AESCrypt() {
   __ ret(0);
 
   return start;
+}
+
+void StubGenerator::generate_aes_stubs() {
+  if (UseAESIntrinsics) {
+    StubRoutines::_aescrypt_encryptBlock = generate_aescrypt_encryptBlock();
+    StubRoutines::_aescrypt_decryptBlock = generate_aescrypt_decryptBlock();
+    StubRoutines::_cipherBlockChaining_encryptAESCrypt = generate_cipherBlockChaining_encryptAESCrypt();
+    if (VM_Version::supports_vaes() &&  VM_Version::supports_avx512vl() && VM_Version::supports_avx512dq() ) {
+      StubRoutines::_cipherBlockChaining_decryptAESCrypt = generate_cipherBlockChaining_decryptVectorAESCrypt();
+      StubRoutines::_electronicCodeBook_encryptAESCrypt = generate_electronicCodeBook_encryptAESCrypt();
+      StubRoutines::_electronicCodeBook_decryptAESCrypt = generate_electronicCodeBook_decryptAESCrypt();
+      StubRoutines::_galoisCounterMode_AESCrypt = generate_galoisCounterMode_AESCrypt();
+    } else {
+      StubRoutines::_cipherBlockChaining_decryptAESCrypt = generate_cipherBlockChaining_decryptAESCrypt_Parallel();
+      if (VM_Version::supports_avx2()) {
+          StubRoutines::_galoisCounterMode_AESCrypt = generate_avx2_galoisCounterMode_AESCrypt();
+      }
+    }
+  }
+
+  if (UseAESCTRIntrinsics) {
+    int vector_len = Assembler::AVX_128bit;
+    if (VM_Version::supports_vaes() && VM_Version::supports_avx512bw() && VM_Version::supports_avx512vl()) {
+      vector_len = Assembler::AVX_512bit;
+    } else if (VM_Version::supports_vaes()) {
+      vector_len = Assembler::AVX_256bit;
+    } else {
+      assert(VM_Version::supports_vaes() || (VM_Version::supports_aes() && VM_Version::supports_sse4_1()), "AESNI intrinsic unsupported");
+    }
+
+    int parallel = 2;
+    bool newImpl = true;
+    if (DevAESCTR !=0) {
+      newImpl = (DevAESCTR%2) == 1;
+      vector_len = (DevAESCTR/10)%10;
+      parallel = (DevAESCTR/100);
+      fprintf(stderr, "DevAESCTR set. %s new implementation, vector_len = %s, parallel = %d\n", 
+        newImpl ? "Using" : "Not using", 
+        vector_len == 0 ? "128" :
+        vector_len == 1 ? "256" :
+        vector_len == 2 ? "512" : "<<<<<!!!INVALID!!!>>>>>", parallel);
+    }
+
+    if (newImpl) {
+      AESAssembler S(_masm);
+      StubRoutines::_counterMode_AESCrypt = generate_counterModeAES(this, vector_len, &S, parallel);
+    } else {
+      if (vector_len == Assembler::AVX_512bit && VM_Version::supports_vaes() && VM_Version::supports_avx512bw() && VM_Version::supports_avx512vl()) {
+        StubRoutines::_counterMode_AESCrypt = generate_counterMode_VectorAESCrypt();
+      } else {
+        StubRoutines::_counterMode_AESCrypt = generate_counterMode_AESCrypt_Parallel();
+      }
+    }
+  }
 }
 
 // AVX2 Vector AES Galois Counter Mode implementation.
@@ -783,7 +1488,7 @@ address StubGenerator::generate_counterMode_AESCrypt_Parallel() {
 }
 
 address StubGenerator::generate_cipherBlockChaining_decryptVectorAESCrypt() {
-  assert(VM_Version::supports_avx512_vaes(), "need AES instructions and misaligned SSE support");
+  assert(VM_Version::supports_vaes(), "need AES instructions and misaligned SSE support");
   __ align(CodeEntryAlignment);
   StubId stub_id = StubId::stubgen_cipherBlockChaining_decryptAESCrypt_id;
   StubCodeMark mark(this, stub_id);
