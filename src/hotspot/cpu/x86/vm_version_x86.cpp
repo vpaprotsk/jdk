@@ -1016,7 +1016,6 @@ void VM_Version::get_processor_features() {
     _features.clear_feature(CPU_AVX512VL);
     _features.clear_feature(CPU_AVX512_VPOPCNTDQ);
     _features.clear_feature(CPU_AVX512_VPCLMULQDQ);
-    _features.clear_feature(CPU_AVX512_VAES);
     _features.clear_feature(CPU_AVX512_VNNI);
     _features.clear_feature(CPU_AVX512_VBMI);
     _features.clear_feature(CPU_AVX512_VBMI2);
@@ -1032,6 +1031,7 @@ void VM_Version::get_processor_features() {
   if (UseAVX < 2) {
     _features.clear_feature(CPU_AVX2);
     _features.clear_feature(CPU_AVX_IFMA);
+    _features.clear_feature(CPU_VAES); //???
   }
 
   if (UseAVX < 1) {
@@ -1054,7 +1054,7 @@ void VM_Version::get_processor_features() {
       _features.clear_feature(CPU_APX_F);
       _features.clear_feature(CPU_AVX512DQ);
       _features.clear_feature(CPU_AVX512_VNNI);
-      _features.clear_feature(CPU_AVX512_VAES);
+      _features.clear_feature(CPU_VAES); //???
       _features.clear_feature(CPU_AVX512_VPOPCNTDQ);
       _features.clear_feature(CPU_AVX512_VPCLMULQDQ);
       _features.clear_feature(CPU_AVX512_VBMI);
@@ -2938,6 +2938,8 @@ VM_Version::VM_Features VM_Version::CpuidInfo::feature_flags() const {
     }
     if (sef_cpuid7_ecx.bits.gfni != 0)
         vm_features.set_feature(CPU_GFNI);
+    if (sef_cpuid7_ecx.bits.vaes != 0)
+        vm_features.set_feature(CPU_VAES);
     if (sef_cpuid7_ebx.bits.avx512f != 0 &&
         xem_xcr0_eax.bits.opmask != 0 &&
         xem_xcr0_eax.bits.zmm512 != 0 &&
@@ -2961,8 +2963,8 @@ VM_Version::VM_Features VM_Version::CpuidInfo::feature_flags() const {
         vm_features.set_feature(CPU_AVX512_VPOPCNTDQ);
       if (sef_cpuid7_ecx.bits.avx512_vpclmulqdq != 0)
         vm_features.set_feature(CPU_AVX512_VPCLMULQDQ);
-      if (sef_cpuid7_ecx.bits.vaes != 0)
-        vm_features.set_feature(CPU_AVX512_VAES);
+      // if (sef_cpuid7_ecx.bits.vaes != 0)
+      //   vm_features.set_feature(CPU_VAES);
       if (sef_cpuid7_ecx.bits.avx512_vnni != 0)
         vm_features.set_feature(CPU_AVX512_VNNI);
       if (sef_cpuid7_ecx.bits.avx512_bitalg != 0)
@@ -2989,7 +2991,7 @@ VM_Version::VM_Features VM_Version::CpuidInfo::feature_flags() const {
         vm_features.set_feature(CPU_AVX512VL);
         vm_features.set_feature(CPU_AVX512_VPOPCNTDQ);
         vm_features.set_feature(CPU_AVX512_VPCLMULQDQ);
-        vm_features.set_feature(CPU_AVX512_VAES);
+        // vm_features.set_feature(CPU_VAES);
         vm_features.set_feature(CPU_AVX512_VNNI);
         vm_features.set_feature(CPU_AVX512_BITALG);
         vm_features.set_feature(CPU_AVX512_VBMI);

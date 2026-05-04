@@ -42,16 +42,16 @@ import sun.security.util.ArrayUtil;
  * @author Andreas Sterbenz
  * @since 1.4.2
  */
-class CounterMode extends FeedbackCipher {
+public class CounterMode extends FeedbackCipher {
 
     // current counter value
     final byte[] counter;
 
     // encrypted bytes of the previous counter value
-    private final byte[] encryptedCounter;
+    public final byte[] encryptedCounter;
 
     // number of bytes in encryptedCounter already used up
-    private int used;
+    public int used;
 
     // chunkSize is a multiple of block size and used to divide up
     // input data to trigger the intrinsic.
@@ -62,7 +62,7 @@ class CounterMode extends FeedbackCipher {
     private byte[] encryptedCounterSave = null;
     private int usedSave = 0;
 
-    CounterMode(SymmetricCipher embeddedCipher) {
+    public CounterMode(SymmetricCipher embeddedCipher) {
         super(embeddedCipher);
         counter = new byte[blockSize];
         encryptedCounter = new byte[blockSize];
@@ -83,7 +83,7 @@ class CounterMode extends FeedbackCipher {
      * This is used when doFinal is called in the Cipher class, so that the
      * cipher can be reused (with its original iv).
      */
-    void reset() {
+    public void reset() {
         System.arraycopy(iv, 0, counter, 0, blockSize);
         used = blockSize;
     }
@@ -124,7 +124,7 @@ class CounterMode extends FeedbackCipher {
      * @exception InvalidKeyException if the given key is inappropriate for
      * initializing this cipher
      */
-    void init(boolean decrypting, String algorithm, byte[] key, byte[] iv)
+    public void init(boolean decrypting, String algorithm, byte[] key, byte[] iv)
             throws InvalidKeyException {
         if ((key == null) || (iv == null) || (iv.length != blockSize)) {
             throw new InvalidKeyException("Internal error");
@@ -196,18 +196,27 @@ class CounterMode extends FeedbackCipher {
         return processed;
     }
 
-    // Implementation of crpyt() method. Possibly replaced with a compiler intrinsic.
+    // Implementation of crypt() method. Possibly replaced with a compiler intrinsic.
     @IntrinsicCandidate
-    private int implCrypt(byte[] in, int inOff, int len, byte[] out, int outOff) {
+    public int implCrypt(byte[] in, int inOff, int len, byte[] out, int outOff) {
+        System.out.print('.');
+        return implCryptJava(in, inOff, len, out, outOff);
+    }
+    public int implCryptJava(byte[] in, int inOff, int len, byte[] out, int outOff) {
+        java.util.HexFormat hex = java.util.HexFormat.of();
         int result = len;
         while (len-- > 0) {
             if (used >= blockSize) {
-                embeddedCipher.encryptBlock(counter, 0, encryptedCounter, 0);
+                ((AES_Crypt)embeddedCipher).implEncryptBlockJava(counter, 0, encryptedCounter, 0);
+                // System.out.println("CTR clear: " + hex.formatHex(counter));
+                // System.out.println("CTR block: " + hex.formatHex(encryptedCounter));
                 increment(counter);
+                // System.out.println("CTR clear: " + hex.formatHex(counter));
                 used = 0;
             }
             out[outOff++] = (byte)(in[inOff++] ^ encryptedCounter[used++]);
         }
+        // System.out.println("Encrypted: " + hex.formatHex(out));
         return result;
     }
 
