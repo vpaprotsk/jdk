@@ -33,7 +33,8 @@ public class MessageDigestBench extends CryptoBase {
 
     public static final int SET_SIZE = 128;
 
-    @Param({"MD5", "SHA", "SHA-256", "SHA-384", "SHA-512"})
+    @Param({//"MD5", "SHA", "SHA-256", "SHA-384", "SHA-512", 
+    "SHA3-256", "SHA3-384", "SHA3-512"})
     private String algorithm;
 
     /*
@@ -41,22 +42,22 @@ public class MessageDigestBench extends CryptoBase {
      * Small value causes large impact of MessageDigest.getInstance including lock contention in multi-threaded
      * execution.
      */
-    @Param({""+1024*1024})
+    @Param({"100", "1024", ""+1024*1024, ""+1024*1024*20})
     int dataSize;
 
     private byte[][] data;
     int index = 0;
-
+    private MessageDigest md;
 
     @Setup
-    public void setup() {
+    public void setup() throws NoSuchAlgorithmException {
         setupProvider();
         data = fillRandom(new byte[SET_SIZE][dataSize]);
+        md = (prov == null) ? MessageDigest.getInstance(algorithm) : MessageDigest.getInstance(algorithm, prov);
     }
 
     @Benchmark
-    public byte[] digest() throws NoSuchAlgorithmException {
-        MessageDigest md = (prov == null) ? MessageDigest.getInstance(algorithm) : MessageDigest.getInstance(algorithm, prov);
+    public byte[] digest() {
         byte[] d = data[index];
         index = (index +1) % SET_SIZE;
         return md.digest(d);

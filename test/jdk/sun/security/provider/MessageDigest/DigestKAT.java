@@ -179,6 +179,7 @@ public class DigestKAT {
         long start = System.currentTimeMillis();
         Provider p = Security.getProvider(System.getProperty("test.provider.name","SUN"));
         System.out.println("Testing provider " + p.getName() + "...");
+        for (int j = 0; j<10000; j++) //repeat for intrinsic
         for (int i = 0; i < tests.length; i++) {
             Test test = tests[i];
             test.run(p);
