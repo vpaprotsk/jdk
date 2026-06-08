@@ -599,8 +599,10 @@ bool LibraryCallKit::try_to_inline(int predicate) {
   case vmIntrinsics::_sha5_implCompress:
   case vmIntrinsics::_sha3_implCompress:
     return inline_digestBase_implCompress(intrinsic_id());
+  case vmIntrinsics::_single_keccak:
   case vmIntrinsics::_double_keccak:
   case vmIntrinsics::_quad_keccak:
+  case vmIntrinsics::_eight_keccak:
     return inline_keccak(intrinsic_id());
 
   case vmIntrinsics::_digestBase_implCompressMB:
@@ -8477,12 +8479,19 @@ bool LibraryCallKit::inline_keccak(vmIntrinsics::ID id) {
   address stubAddr = nullptr;
   const char *stubName;
   assert(UseSHA3Intrinsics, "need SHA3 intrinsics support");
-  assert((id == vmIntrinsics::_double_keccak && callee()->signature()->size() == 2) ||
-         (id == vmIntrinsics::_quad_keccak && callee()->signature()->size() == 4),
+  assert((id == vmIntrinsics::_single_keccak && callee()->signature()->size() == 1) ||
+         (id == vmIntrinsics::_double_keccak && callee()->signature()->size() == 2) ||
+         (id == vmIntrinsics::_quad_keccak   && callee()->signature()->size() == 4) ||
+         (id == vmIntrinsics::_eight_keccak  && callee()->signature()->size() == 8),
           "double_keccak wrong number of parameters");
 
   int parmCnt = 0;
   switch (id) {
+    case vmIntrinsics::_single_keccak:
+      stubAddr = StubRoutines::single_keccak();
+      stubName = "single_keccak";
+      parmCnt = 1;
+      break;
     case vmIntrinsics::_double_keccak:
       stubAddr = StubRoutines::double_keccak();
       stubName = "double_keccak";
@@ -8493,13 +8502,18 @@ bool LibraryCallKit::inline_keccak(vmIntrinsics::ID id) {
       stubName = "quad_keccak";
       parmCnt = 4;
       break;
+    case vmIntrinsics::_eight_keccak:
+      stubAddr = StubRoutines::eight_keccak();
+      stubName = "eight_keccak";
+      parmCnt = 8;
+      break;
     default:
       ShouldNotReachHere();
   }
 
   if (!stubAddr) return false;
 
-  Node* state[4];
+  Node* state[8];
   for (int i = 0; i<parmCnt; i++) {
       state[i] = must_be_not_null(argument(i), true);
       state[i] = array_element_address(state[i], intcon(0), T_LONG);
@@ -8508,25 +8522,43 @@ bool LibraryCallKit::inline_keccak(vmIntrinsics::ID id) {
 
   Node* keccak;
   switch (id) {
+    case vmIntrinsics::_single_keccak:
+      keccak = make_runtime_call(RC_LEAF|RC_NO_FP,
+                                  OptoRuntime::single_keccak_Type(),
+                                  stubAddr, stubName, TypePtr::BOTTOM,
+                                  state[0]);
+      // no return, void
+      //_gvn.transform(new ProjNode(keccak, TypeFunc::Parms));
+      break;
     case vmIntrinsics::_double_keccak:
       keccak = make_runtime_call(RC_LEAF|RC_NO_FP,
                                   OptoRuntime::double_keccak_Type(),
                                   stubAddr, stubName, TypePtr::BOTTOM,
                                   state[0], state[1]);
+      // return an int
+      set_result(_gvn.transform(new ProjNode(keccak, TypeFunc::Parms)));
       break;
     case vmIntrinsics::_quad_keccak:
       keccak = make_runtime_call(RC_LEAF|RC_NO_FP,
                                   OptoRuntime::quad_keccak_Type(),
                                   stubAddr, stubName, TypePtr::BOTTOM,
                                   state[0], state[1], state[2], state[3]);
+      // return an int
+      set_result(_gvn.transform(new ProjNode(keccak, TypeFunc::Parms)));
+      break;
+    case vmIntrinsics::_eight_keccak:
+      keccak = make_runtime_call(RC_LEAF|RC_NO_FP,
+                                  OptoRuntime::eight_keccak_Type(),
+                                  stubAddr, stubName, TypePtr::BOTTOM,
+                                  state[0], state[1], state[2], state[3],
+                                  state[4], state[5], state[6], state[7]);
+      // return an int
+      set_result(_gvn.transform(new ProjNode(keccak, TypeFunc::Parms)));
       break;
     default:
       ShouldNotReachHere();
   }
 
-  // return an int
-  Node* retvalue = _gvn.transform(new ProjNode(keccak, TypeFunc::Parms));
-  set_result(retvalue);
   return true;
 }
 
