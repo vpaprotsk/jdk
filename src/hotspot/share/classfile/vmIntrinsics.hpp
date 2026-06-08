@@ -523,6 +523,9 @@ class methodHandle;
   /* support for sun.security.provider.SHA3 */                                                                          \
   do_class(sun_security_provider_sha3,                             "sun/security/provider/SHA3")                        \
   do_intrinsic(_sha3_implCompress, sun_security_provider_sha3, implCompress_name, implCompress_signature, F_R)          \
+  do_intrinsic(_single_keccak, sun_security_provider_sha3, single_keccak_name, single_keccak_signature, F_S)            \
+   do_name(     single_keccak_name,                                 "keccak")                                          \
+   do_signature(single_keccak_signature,                            "([J)V")                                          \
                                                                                                                         \
   /* support for sun.security.provider.SHAKE128Parallel */                                                              \
   do_class(sun_security_provider_sha3_parallel,                "sun/security/provider/SHA3Parallel")                    \
@@ -532,6 +535,9 @@ class methodHandle;
    do_intrinsic(_quad_keccak, sun_security_provider_sha3_parallel, quad_keccak_name, quad_keccak_signature, F_S)        \
    do_name(     quad_keccak_name,                                 "quadKeccak")                                         \
    do_signature(quad_keccak_signature,                            "([J[J[J[J)I")                                        \
+   do_intrinsic(_eight_keccak, sun_security_provider_sha3_parallel, eight_keccak_name, eight_keccak_signature, F_S)     \
+   do_name(     eight_keccak_name,                                 "eightKeccak")                                       \
+   do_signature(eight_keccak_signature,                            "([J[J[J[J[J[J[J[J)I")                               \
                                                                                                                         \
   /* support for sun.security.provider.DigestBase */                                                                    \
   do_class(sun_security_provider_digestbase,                       "sun/security/provider/DigestBase")                  \

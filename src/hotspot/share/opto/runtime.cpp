@@ -208,8 +208,10 @@ const TypeFunc* OptoRuntime::_digestBase_implCompress_with_sha3_Type      = null
 const TypeFunc* OptoRuntime::_digestBase_implCompress_without_sha3_Type   = nullptr;
 const TypeFunc* OptoRuntime::_digestBase_implCompressMB_with_sha3_Type    = nullptr;
 const TypeFunc* OptoRuntime::_digestBase_implCompressMB_without_sha3_Type = nullptr;
+const TypeFunc* OptoRuntime::_single_keccak_Type                  = nullptr;
 const TypeFunc* OptoRuntime::_double_keccak_Type                  = nullptr;
 const TypeFunc* OptoRuntime::_quad_keccak_Type                    = nullptr;
+const TypeFunc* OptoRuntime::_eight_keccak_Type                   = nullptr;
 const TypeFunc* OptoRuntime::_multiplyToLen_Type                  = nullptr;
 const TypeFunc* OptoRuntime::_montgomeryMultiply_Type             = nullptr;
 const TypeFunc* OptoRuntime::_montgomerySquare_Type               = nullptr;
@@ -1205,7 +1207,23 @@ static const TypeFunc* make_digestBase_implCompressMB_Type(bool is_sha3) {
   return TypeFunc::make(domain, range);
 }
 
-// SHAKE128Parallel doubleKeccak function
+static const TypeFunc* make_single_keccak_Type() {
+    int argcnt = 1;
+
+    const Type** fields = TypeTuple::fields(argcnt);
+    int argp = TypeFunc::Parms;
+    fields[argp++] = TypePtr::NOTNULL;      // status0
+
+    assert(argp == TypeFunc::Parms + argcnt, "correct decoding");
+    const TypeTuple* domain = TypeTuple::make(TypeFunc::Parms + argcnt, fields);
+
+    // void result type needed
+    fields = TypeTuple::fields(1);
+    fields[TypeFunc::Parms+0] = TypePtr::NOTNULL;;
+    const TypeTuple* range = TypeTuple::make(TypeFunc::Parms, fields);
+    return TypeFunc::make(domain, range);
+}
+
 static const TypeFunc* make_double_keccak_Type() {
     int argcnt = 2;
 
@@ -1233,6 +1251,30 @@ static const TypeFunc* make_quad_keccak_Type() {
     fields[argp++] = TypePtr::NOTNULL;      // status1
     fields[argp++] = TypePtr::NOTNULL;      // status2
     fields[argp++] = TypePtr::NOTNULL;      // status3
+
+    assert(argp == TypeFunc::Parms + argcnt, "correct decoding");
+    const TypeTuple* domain = TypeTuple::make(TypeFunc::Parms + argcnt, fields);
+
+    // result type needed
+    fields = TypeTuple::fields(1);
+    fields[TypeFunc::Parms + 0] = TypeInt::INT;
+    const TypeTuple* range = TypeTuple::make(TypeFunc::Parms + 1, fields);
+    return TypeFunc::make(domain, range);
+}
+
+static const TypeFunc* make_eight_keccak_Type() {
+    int argcnt = 8;
+
+    const Type** fields = TypeTuple::fields(argcnt);
+    int argp = TypeFunc::Parms;
+    fields[argp++] = TypePtr::NOTNULL;      // status0
+    fields[argp++] = TypePtr::NOTNULL;      // status1
+    fields[argp++] = TypePtr::NOTNULL;      // status2
+    fields[argp++] = TypePtr::NOTNULL;      // status3
+    fields[argp++] = TypePtr::NOTNULL;      // status4
+    fields[argp++] = TypePtr::NOTNULL;      // status5
+    fields[argp++] = TypePtr::NOTNULL;      // status6
+    fields[argp++] = TypePtr::NOTNULL;      // status7
 
     assert(argp == TypeFunc::Parms + argcnt, "correct decoding");
     const TypeTuple* domain = TypeTuple::make(TypeFunc::Parms + argcnt, fields);
@@ -2362,8 +2404,10 @@ void OptoRuntime::initialize_types() {
   _digestBase_implCompress_without_sha3_Type   = make_digestBase_implCompress_Type(  /* is_sha3= */ false);;
   _digestBase_implCompressMB_with_sha3_Type    = make_digestBase_implCompressMB_Type(/* is_sha3= */ true);
   _digestBase_implCompressMB_without_sha3_Type = make_digestBase_implCompressMB_Type(/* is_sha3= */ false);
+  _single_keccak_Type                 = make_single_keccak_Type();
   _double_keccak_Type                 = make_double_keccak_Type();
   _quad_keccak_Type                   = make_quad_keccak_Type();
+  _eight_keccak_Type                  = make_eight_keccak_Type();
   _multiplyToLen_Type                 = make_multiplyToLen_Type();
   _montgomeryMultiply_Type            = make_montgomeryMultiply_Type();
   _montgomerySquare_Type              = make_montgomerySquare_Type();

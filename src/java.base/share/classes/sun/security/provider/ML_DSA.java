@@ -25,15 +25,21 @@
 
 package sun.security.provider;
 
+import java.lang.foreign.ValueLayout;
 import jdk.internal.vm.annotation.IntrinsicCandidate;
 import sun.security.provider.SHA3.SHAKE256;
 import sun.security.provider.SHA3Parallel.Shake128Parallel;
-
+import static sun.security.provider.SHA3Parallel.eightKeccakN;
+import java.lang.foreign.MemorySegment;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
+import java.nio.ByteOrder;
 import java.security.InvalidAlgorithmParameterException;
 import java.security.MessageDigest;
 import java.security.InvalidKeyException;
 import java.security.SignatureException;
 import java.util.Arrays;
+import java.util.HexFormat;
 
 public class ML_DSA {
     // Security level constants
@@ -522,6 +528,9 @@ public class ML_DSA {
         return null;
     }
 
+    public static final boolean useOld = false;
+    public static final boolean verifyGenA = false;
+
     //Internal functions in Section 6 of specification
     public ML_DSA_KeyPair generateKeyPairInternal(byte[] randomBytes) {
         //Initialize hash functions
@@ -538,7 +547,13 @@ public class ML_DSA {
         hash.reset();
 
         //Sample A
-        int[][][] keygenA = generateA(rho); //A is in NTT domain
+        int[][][] keygenA;
+        int[][] _keygenA;
+        if (useOld) {
+            keygenA = generateA(rho); //A is in NTT domain
+        } else {
+            _keygenA = newGenerateA(rho); //A is in NTT domain
+        }
 
         //Sample S1 and S2
         int[][] s1 = integerMatrixAlloc(mlDsa_l, ML_DSA_N);
@@ -549,7 +564,11 @@ public class ML_DSA {
         //Compute t and tr
         mlDsaVectorNtt(s1); //s1 now in NTT domain
         int[][] As1 = integerMatrixAlloc(mlDsa_k, ML_DSA_N);
-        matrixVectorPointwiseMultiply(As1, keygenA, s1);
+        if (useOld) {
+            matrixVectorPointwiseMultiply(As1, keygenA, s1);
+        } else {
+            matrixVectorPointwiseMultiply(As1, _keygenA, s1);
+        }
         mlDsaVectorInverseNtt(s1); //take s1 out of NTT domain
 
         mlDsaVectorInverseNtt(As1);
@@ -583,7 +602,13 @@ public class ML_DSA {
     // an IllegalArgumentException is thrown.
     public ML_DSA_PublicKey privKeyToPubKey(ML_DSA_PrivateKey sk) {
         // Sample A
-        int[][][] keygenA = generateA(sk.rho); //A is in NTT domain
+        int[][][] keygenA;
+        int[][] _keygenA;
+        if (useOld) {
+            keygenA = generateA(sk.rho); //A is in NTT domain
+        } else {
+            _keygenA = newGenerateA(sk.rho); //A is in NTT domain
+        }
 
         // Compute t and tr
         // make a copy of sk.s1 and modify it. Although we can also
@@ -591,7 +616,11 @@ public class ML_DSA {
         var s1 = deepClone(sk.s1);
         mlDsaVectorNtt(s1); //s1 now in NTT domain
         int[][] As1 = integerMatrixAlloc(mlDsa_k, ML_DSA_N);
-        matrixVectorPointwiseMultiply(As1, keygenA, s1);
+        if (useOld) {
+            matrixVectorPointwiseMultiply(As1, keygenA, s1);
+        } else {
+            matrixVectorPointwiseMultiply(As1, _keygenA, s1);
+        }
 
         mlDsaVectorInverseNtt(As1);
         int[][] t = vectorAddPos(As1, sk.s2);
@@ -625,7 +654,13 @@ public class ML_DSA {
         mlDsaVectorNtt(sk.s1());
         mlDsaVectorNtt(sk.s2());
         mlDsaVectorNtt(sk.t0());
-        int[][][] aHat = generateA(sk.rho());
+        int[][][] aHat;
+        int[][] _aHat;
+        if (useOld) {
+            aHat = generateA(sk.rho()); //A is in NTT domain
+        } else {
+            _aHat = newGenerateA(sk.rho()); //A is in NTT domain
+        }
 
         //Compute mu
         hash.update(sk.tr());
@@ -666,7 +701,11 @@ public class ML_DSA {
 
             //Compute w and w1
             mlDsaVectorNtt(y); //y is now in NTT domain
-            matrixVectorPointwiseMultiply(w, aHat, y);
+            if (useOld) {
+                matrixVectorPointwiseMultiply(w, aHat, y);
+            } else {
+                matrixVectorPointwiseMultiply(w, _aHat, y);
+            }
             mlDsaVectorInverseNtt(w); //w is now in normal domain
             decompose(w, w0, w1);
 
@@ -717,7 +756,13 @@ public class ML_DSA {
         ML_DSA_PublicKey pk = pkDecode(pkBytes);
 
         //Expand A
-        int[][][] aHat = generateA(pk.rho());
+        int[][][] aHat;
+        int[][] _aHat;
+        if (useOld) {
+            aHat = generateA(pk.rho()); //A is in NTT domain
+        } else {
+            _aHat = newGenerateA(pk.rho()); //A is in NTT domain
+        }
 
         //Generate tr
         hash.update(pkBytes);
@@ -741,7 +786,11 @@ public class ML_DSA {
 
         //Reconstruct signer's commitment
         int[][] aHatZ = integerMatrixAlloc(mlDsa_k, ML_DSA_N);
-        matrixVectorPointwiseMultiply(aHatZ, aHat, sig.response());
+        if (useOld) {
+            matrixVectorPointwiseMultiply(aHatZ, aHat, sig.response());
+        } else {
+            matrixVectorPointwiseMultiply(aHatZ, _aHat, sig.response());
+        }
 
         int[][] t1Hat = vectorConstMul(1 << ML_DSA_D, pk.t1());
         mlDsaVectorNtt(t1Hat);
@@ -1138,7 +1187,103 @@ public class ML_DSA {
         }
     }
 
+    private interface LongArrayOp {
+        void apply(long[] arr, int i, int j);
+    }
+
+    static final ValueLayout.OfInt LAYOUT = ValueLayout.JAVA_INT_UNALIGNED.withOrder(ByteOrder.LITTLE_ENDIAN);
+    static final VarHandle VHL = MethodHandles.byteArrayViewVarHandle(long[].class, ByteOrder.LITTLE_ENDIAN);
+
+    private static short copyOut(long[] raw, int[] parsed, short offset) {
+        MemorySegment seg = MemorySegment.ofArray(raw);
+        for (int off = 0; offset < ML_DSA_N && off < SHAKE128_BLOCK_SIZE; off+=3) {
+            int val = seg.get(LAYOUT, off) & 0x7FFFFF;
+            if (val < ML_DSA_Q) {
+                parsed[offset++] = val;
+            }
+        }
+        return offset;
+    }
+
+    private int[][] newGenerateA(byte[] seed) {
+        final int NR = 8;
+        int[][] a = new int[mlDsa_k*mlDsa_l][ML_DSA_N];
+        short[] offsets = new short[NR];
+        long[][] states = new long[NR][5*5];
+        int[][] slots = new int[NR][];
+        long[] initSt = new long[5*5];
+
+        int rhoLen = seed.length;
+        assert(rhoLen == 32);
+
+        int t = 0;
+        for (int i = 0; i < seed.length; i += 8, t++) {
+            initSt[t] = (long) VHL.get(seed, i);
+        }
+        initSt[SHAKE128_BLOCK_SIZE/8-1] = 0x8000000000000000L;
+        // rest of initSt array has been zeroed by GC
+
+
+        LongArrayOp initState = (arr, i, j) -> {
+            System.arraycopy(initSt, 0, arr, 0, initSt.length);
+            arr[rhoLen/8] = 0x1F<<16 | i<<8 | j;
+        };
+
+        int active = 0;
+        int next = 0;
+        for (; next < NR; next++, active++) {
+            initState.apply(states[next], next/mlDsa_l, next%mlDsa_l);
+            slots[next] = a[next];
+        }
+
+        while (active > 0) {
+            eightKeccakN(active, states[0], states[1], states[2], states[3], 
+                states[4], states[5], states[6], states[7]);
+            
+            for (int i = 0; i<active; i++) {
+                offsets[i] = copyOut(states[i], slots[i], offsets[i]);
+                if (offsets[i] > 255) {
+                    offsets[i] = 0;
+                    int lastActive = active-1;
+                    if (next<mlDsa_k*mlDsa_l) { // grab next
+                        initState.apply(states[i], next/mlDsa_l, next%mlDsa_l);
+                        slots[i] = a[next++];
+                    } else if (i != lastActive) { // compact
+                        slots[i] = slots[lastActive];
+                        states[i] = states[lastActive];
+                        offsets[i] = offsets[lastActive];
+                        active--;
+                        i--; //process this slot again
+                    } else { // i==active-1
+                        active--;
+                    }
+                }
+            }
+        }
+
+        return a;
+    }
+
+    static final java.util.HexFormat HEX = java.util.HexFormat.of();
+    static final VarHandle VHI = MethodHandles.byteArrayViewVarHandle(int[].class, ByteOrder.LITTLE_ENDIAN);
+    static void compare(int[] a, byte[] b, String msg) {
+        int len = a.length;
+        if (len != b.length/4) {
+            throw new RuntimeException(msg + "length mismatch " + len + " <> " + b.length + "/4");
+        }
+        for (int i = 0; i<len; i++) {
+            if (a[i] != (int)VHI.get(b, i*4)) {
+                throw new RuntimeException(msg + "value mismatch @" + i +": " + HEX.toHexDigits(a[i]) + " <> " + HEX.toHexDigits((int)VHI.get(b, i*4)) + 
+                "[" + HEX.toHexDigits(b[i*4+3])+" " + HEX.toHexDigits(b[i*4+2])+" " + HEX.toHexDigits(b[i*4+1])+" " + HEX.toHexDigits(b[i*4])+" " + "]");
+            }
+        }
+
+    }
     private int[][][] generateA(byte[] seed) {
+        int[][] ver2;
+        if (verifyGenA) {
+            ver2 = newGenerateA(seed);
+        }
 
         // Manually do multidimensional array initialization for performance
         int[][][] a = new int[mlDsa_k][][];
@@ -1222,6 +1367,16 @@ public class ML_DSA {
             throw new RuntimeException("Internal error.");
         }
 
+        if (verifyGenA){
+            for (int i = 0, k = 0; i < mlDsa_k; i++) {
+                for (int j = 0; j < mlDsa_l; k++, j++) {
+                    if (!Arrays.equals(a[i][j], ver2[k])) {
+                        throw new RuntimeException(String.format("Failed comparison at [%d,%d] != [%d]", i, j, k));
+                    }
+                }
+            }
+            System.out.println("Comparison PASS!!!");
+        }
         return a;
     }
 
@@ -1517,6 +1672,27 @@ public class ML_DSA {
             }
             for (int j = 0; j < mlDsa_l; j++) {
                 mlDsaNttMultiply(product, matrix[i][j], vector[j]);
+                for (int m = 0; m < ML_DSA_N; m++) {
+                    resulti[m] += product[m];
+                }
+            }
+            for (int m = 0; m < ML_DSA_N; m++) {
+                res[i][m] = montMul(resulti[m], MONT_R_MOD_Q);
+            }
+        }
+    }
+
+    private void matrixVectorPointwiseMultiply(int[][] res, int[][] matrix,
+                                               int[][] vector) {
+
+        int resulti[] = new int[ML_DSA_N];
+        int[] product = new int[ML_DSA_N];
+        for (int i = 0; i < mlDsa_k; i++) {
+            for (int m = 0; m < ML_DSA_N; m++) {
+                resulti[m] = 0;
+            }
+            for (int j = 0; j < mlDsa_l; j++) {
+                mlDsaNttMultiply(product, matrix[i*mlDsa_l+j], vector[j]);
                 for (int m = 0; m < ML_DSA_N; m++) {
                     resulti[m] += product[m];
                 }
