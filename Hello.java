@@ -28,7 +28,7 @@ public class Hello {
 
     public static void foo() throws Exception {
         Random rnd = new Random();
-        long seed = -2300717692259729805L; //rnd.nextLong();
+        long seed = rnd.nextLong();
         rnd.setSeed(seed);
 
         byte[] keyBytes = new byte[] { 

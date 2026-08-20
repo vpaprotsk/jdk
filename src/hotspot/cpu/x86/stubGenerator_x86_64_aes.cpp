@@ -720,6 +720,8 @@ static address generate_counterModeAES(StubGenerator *stubgen,
 
   __ BIND(SingleBlock); // Special-case 16-and-below
   __ movdqu(LastCtr, Address(ctr));
+  __ movl(Address(usedAddr, 0), used);
+  __ xorl(used, used);
   __ pextrq(nextCtrLow, LastCtr, 0x1);
   __ pextrq(nextCtrHigh, LastCtr, 0x0);
   __ bswapq(nextCtrLow);
@@ -756,8 +758,9 @@ static address generate_counterModeAES(StubGenerator *stubgen,
     __ jcc(Assembler::below, LastBlock);
     __ vpxor(LastCtr, LastCtr, Address(src, pos, Address::times_1, 0), Assembler::AVX_128bit);
     __ vmovdqu(Address(dst, pos, Address::times_1, 0), LastCtr, Assembler::AVX_128bit);
-    __ increment(pos, 16);
-    __ jmp(StoreUsed);
+    __ increment(pos, 16); // output
+    __ vpxor(LastCtr, LastCtr, LastCtr, Assembler::AVX_128bit); // zero-out counter
+    __ jmp(ExitLabel);
     __ bind(NextKeySize);
   }
 
@@ -779,18 +782,6 @@ static address generate_counterModeAES(StubGenerator *stubgen,
   }
 
   __ BIND(LastReg);
-  for (int i = 0; i<parallel; i++, _next = _next->successor()) {
-    __ vpxor(Ctr[i], Ctr[i], Ctr[i], vector_len);
-  }
-  for (int round = 1; round < 15; round++) { // LastCtr = Keys[0] !!
-    if (round >= keyRegs) {
-      int stackOffset = 16*(round - keyRegs);
-      __ movdqu(Address(rsp, stackOffset), Ctr[0]); //already zeroed out 
-    } else {
-      __ vpxor(Keys[round], Keys[round], Keys[round], vector_len);
-    }
-  }
-
   // Process last 'incomplete' register
   if (blocksPerReg == 4) { // Assembler::AVX_512bit
     __ cmpl(len, 32);
@@ -864,9 +855,24 @@ static address generate_counterModeAES(StubGenerator *stubgen,
   __ movl(Address(usedAddr, 0), used);
 
   // Cleanup
+  __ xorl(used, used);
+  for (int i = 0; i<parallel; i++) {
+    __ vpxor(Ctr[i], Ctr[i], Ctr[i], vector_len);
+  }
+  for (int round = 1; round < 15; round++) { // LastCtr = Keys[0] (overloaded)
+    if (round >= keyRegs) {
+      int stackOffset = 16*(round - keyRegs);
+      __ movdqu(Address(rsp, stackOffset), Ctr[0]); //Ctr[0] already zeroed out 
+    } else {
+      __ vpxor(Keys[round], Keys[round], Keys[round], vector_len);
+    }
+  }
+
   __ vpxor(LastCtr, LastCtr, LastCtr, vector_len);
+  __ vpxor(Tmp, Tmp, Tmp, vector_len);
 
   __ BIND(ExitLabel);
+  __ vzeroupper();
   if (totalStackBytes > 0) {
     __ movq(rsp, rbp);
     __ pop_ppx(rbp);
