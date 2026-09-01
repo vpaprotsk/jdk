@@ -56,7 +56,7 @@ public final class ML_KEM {
 
     // The values from Appendix A of the FIPS 203 standard converted to the
     // Montgomery domain, i.e. toMont(zeta^ (bitrev_7(i)) for i = 0..127
-    private static final int[] MONT_ZETAS_FOR_NTT = new int[] {
+    private static final int[]  MONT_ZETAS_FOR_NTT = new int[] {
             1188, 914, -969, 585, -551, 1263, -97, 593,
             -35, -1400, -417, -1253, 742, -281, 185, -819,
             -1226, 895, -530, 52, 25, 1000, 1249, -909,
@@ -1077,6 +1077,7 @@ public final class ML_KEM {
     private static void seilerNTT(int[] coeffs) {
         int dimension = ML_KEM_N;
         int zetaIndex = 0;
+        int level = 0;
         for (int l = dimension / 2; l > 1; l /= 2) {
             for (int s = 0; s < dimension; s += 2 * l) {
                 for (int j = s; j < s + l; j++) {
@@ -1086,7 +1087,21 @@ public final class ML_KEM {
                 }
                 zetaIndex++;
             }
+            dumpLevel(level++, coeffs);
         }
+    }
+
+    // DEBUG: dump coeffs (as shorts, big-endian per element) after an NTT level
+    private static void dumpLevel(int level, int[] coeffs) {
+        if (true) return;
+        byte[] b = new byte[coeffs.length * 2];
+        for (int i = 0; i < coeffs.length; i++) {
+            short v = (short) coeffs[i];
+            b[2 * i]     = (byte) (v >> 8);
+            b[2 * i + 1] = (byte) v;
+        }
+        System.out.println("seilerNTT level " + level + ": "
+                + java.util.HexFormat.of().formatHex(b));
     }
 
     // Implements the ML_KEM inverse NTT algorithm similarly to that described
