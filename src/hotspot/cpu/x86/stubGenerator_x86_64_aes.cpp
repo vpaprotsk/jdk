@@ -232,41 +232,31 @@ public:
     }
   }
 
-  void vaesenc(XMMRegister dst, XMMRegister key, XMMRegister scratch, int vector_len) {
+  void vaesenc(XMMRegister dst, XMMRegister key, int vector_len) {
     assert(VM_Version::supports_vaes() || vector_len == Assembler::AVX_128bit, "Invalid");
     if (VM_Version::supports_vaes()) {
       MacroAssembler::vaesenc(dst, dst, key, vector_len);
-    } else if (key->encoding() > 15 && VM_Version::supports_evex() && !VM_Version::supports_vaes()) {
-      // aesenc(last) does not support upper bank registers but we still want to use the extra registers
-      assert(scratch->encoding() < 16, "Invalid scratch");
-      vmovdqu(scratch, key, vector_len);
-      aesenc(dst, scratch);
     } else {
       aesenc(dst, key);
     }
   }
 
-  void vaesenclast(XMMRegister dst, XMMRegister key, XMMRegister scratch, int vector_len) {
+  void vaesenclast(XMMRegister dst, XMMRegister key, int vector_len) {
     assert(VM_Version::supports_vaes() || vector_len == Assembler::AVX_128bit, "Invalid");
     if (VM_Version::supports_vaes()) {
       MacroAssembler::vaesenclast(dst, dst, key, vector_len);
-    } else if (key->encoding() > 15 && VM_Version::supports_evex() && !VM_Version::supports_vaes()) {
-      // aesenc(last) does not support upper bank registers but we still want to use the extra registers
-      assert(scratch->encoding() < 16, "Invalid scratch");
-      vmovdqu(scratch, key, vector_len);
-      aesenclast(dst, scratch);
     } else {
       aesenclast(dst, key);
     }
   }
 
-  void aesround(XMMRegister dst, XMMRegister key, bool first, bool last, XMMRegister scratch, int vector_len) {
+  void aesround(XMMRegister dst, XMMRegister key, bool first, bool last, int vector_len) {
     if (first) {
       vpxor(dst, dst, key, vector_len);
     } else if (!last) {
-      vaesenc(dst, key, scratch, vector_len);
+      vaesenc(dst, key, vector_len);
     } else {
-      vaesenclast(dst, key, scratch, vector_len);
+      vaesenclast(dst, key, vector_len);
     }
   }
 
@@ -472,6 +462,7 @@ static address generate_counterModeAES(StubGenerator *stubgen,
 
   // XMMRegister allocation
   XMMRegister Increment = xmm0;
+  XMMRegister KeyShuf = xmm0; // overlaps Increment
   XMMRegister Tmp = xmm1;
   XMMRegister CtrShuf = xmm2;
   XMMRegister CtrLow = xmm3;
@@ -546,12 +537,15 @@ static address generate_counterModeAES(StubGenerator *stubgen,
   // First iteration Incremenent is aranged for the unpack to work
   // After first iteration, Increment is a constant step
   __ vmovdqa(Increment, ExternalAddress(counter_adder_addr(vector_len)), vector_len, tmp /*rscratch*/);
-  for (int i = 0, first = true; i<parallel; i += 2, first=false) {
+  auto incCtrPair = [&](int i) {
     __ add128(CtrLow, CtrHigh, Increment, Tmp, Ctr[i], Ctr[i+1], k1, vector_len);
     __ vpunpcklqdq(Ctr[i], CtrLow, CtrHigh, vector_len);
     __ vpunpckhqdq(Ctr[i+1], CtrLow, CtrHigh, vector_len);
     __ vpshufb(Ctr[i], Ctr[i], CtrShuf, vector_len);
     __ vpshufb(Ctr[i+1], Ctr[i+1], CtrShuf, vector_len);
+  };
+  for (int i = 0, first = true; i<parallel; i += 2, first=false) {
+    incCtrPair(i);
     if (first && parallel>2) {
       __ vpbroadcastq(Increment, 2*blocksPerReg, vector_len, tmp);
     }
@@ -560,21 +554,47 @@ static address generate_counterModeAES(StubGenerator *stubgen,
   /********************** INIT KEYS & FIRST AES ITERATION  **********************/
   // convert keys to little-endian (into registers and onto stack)
   BLOCK_COMMENT("INIT Keys");
-  __ movdqu(Increment, ExternalAddress(key_shuffle_mask_addr()), tmp /*rscratch*/);
-  for (int round = 0; round < 10; round++) { // << LOOP Starts here!!!
-    XMMRegister KeyReg = round < keyRegs ? Keys[round] : Tmp;
-    __ movdqu(KeyReg, Address(key, round*16));
-    __ pshufb(KeyReg, Increment);
+  __ movdqu(KeyShuf, ExternalAddress(key_shuffle_mask_addr()), tmp /*rscratch*/);
+  auto keysAndRounds = [&](bool init, int from, int to, int keyRounds, int parallel) {
+    for (int round = from; round < to; round++) {
+      XMMRegister KeyReg = round < keyRegs ? Keys[round] : Tmp;
+      if (init) {
+        __ movdqu(KeyReg, Address(key, round*16));
+        __ pshufb(KeyReg, KeyShuf);
 
-    __ vbroadcasti128(KeyReg, KeyReg, vector_len);
-    if (round >= keyRegs) {
-      int stackOffset = 16*(round - keyRegs);
-      __ movdqu(Address(rsp, stackOffset), KeyReg);
+        __ vbroadcasti128(KeyReg, KeyReg, vector_len);
+        if (round >= keyRegs) {
+          // once ran out of registers, store preshuffled keys to stack
+          int stackOffset = 16*(round - keyRegs);
+          __ movdqu(Address(rsp, stackOffset), KeyReg);
+        }
+      } else if (round >= keyRegs) {
+        // once ran out of registers, restore preshuffled keys from stack
+        int stackOffset = 16*(round - keyRegs);
+        __ vbroadcasti128(KeyReg, Address(rsp, stackOffset), vector_len);
+      }
+      if (KeyReg != Tmp && KeyReg->encoding() > 15 && !VM_Version::supports_vaes()) {
+        // aesenc cant use higher bank, but we want to still use those registers
+        __ vmovdqu(Tmp, KeyReg, vector_len);
+        KeyReg = Tmp;
+      }
+      for (int i = 0; i<parallel; i++) {
+        __ aesround(Ctr[i], KeyReg, round == 0, round == keyRounds - 1, vector_len);
+      }
     }
-    for (int i = 0; i<parallel; i++) {
-      __ aesround(Ctr[i], KeyReg, round == 0, false, Tmp, vector_len);
+  };
+  keysAndRounds(true, 0, 10, -1, parallel);
+
+  auto xorDataAndIncCtr = [&](int parallel) {
+    for (int i = 0; i<parallel; i+=2) {
+      __ vpxor(Ctr[i], Ctr[i], Address(src, pos, Address::times_1, i*blocksPerReg*16), vector_len);
+      __ vpxor(Ctr[i+1], Ctr[i+1], Address(src, pos, Address::times_1, (i+1)*blocksPerReg*16), vector_len);
+      __ vmovdqu(Address(dst, pos, Address::times_1, i*blocksPerReg*16), Ctr[i], vector_len);
+      __ vmovdqu(Address(dst, pos, Address::times_1, (i+1)*blocksPerReg*16), Ctr[i+1], vector_len);
+
+      incCtrPair(i);
     }
-  }
+  };
 
   char buffer[64];
   for (int keyRounds = 11; keyRounds <= 15; keyRounds +=2) { // 11, 13, 15
@@ -587,21 +607,8 @@ static address generate_counterModeAES(StubGenerator *stubgen,
     // convert keys to little-endian (into registers and onto stack)
     os::snprintf_checked(buffer, sizeof(buffer), "(%d Rounds) INIT Keys tail", keyRounds);
     BLOCK_COMMENT(buffer);
-    // Increment contains key_shuffle_mask_addr
-    for (int round = 10; round < keyRounds; round++) { // << LOOP Continues here!!!
-      XMMRegister KeyReg = round < keyRegs ? Keys[round] : Tmp;
-      __ movdqu(KeyReg, Address(key, round*16));
-      __ pshufb(KeyReg, Increment);
-
-      __ vbroadcasti128(KeyReg, KeyReg, vector_len);
-      if (round >= keyRegs) {
-        int stackOffset = 16*(round - keyRegs);
-        __ movdqu(Address(rsp, stackOffset), KeyReg);
-      }
-      for (int i = 0; i<parallel; i++) {
-        __ aesround(Ctr[i], KeyReg, round == 0, round == keyRounds - 1, Tmp, vector_len);
-      }
-    }
+    // finish rounds for this keysize
+    keysAndRounds(true, 10, keyRounds, keyRounds, parallel);
 
     // Restore Ctr Increment
     __ vpbroadcastq(Increment, 2*blocksPerReg, vector_len, tmp); // 2 Ctrs at a time
@@ -609,18 +616,7 @@ static address generate_counterModeAES(StubGenerator *stubgen,
     __ jcc(Assembler::below, LastSet); // Not enough to do a full iteration, break
 
     BLOCK_COMMENT("XOR Data and Increment Counters for Next iteration");
-    for (int i = 0; i<parallel; i+=2) {
-      __ vpxor(Ctr[i], Ctr[i], Address(src, pos, Address::times_1, i*blocksPerReg*16), vector_len);
-      __ vmovdqu(Address(dst, pos, Address::times_1, i*blocksPerReg*16), Ctr[i], vector_len);
-      __ vpxor(Ctr[i+1], Ctr[i+1], Address(src, pos, Address::times_1, (i+1)*blocksPerReg*16), vector_len);
-      __ vmovdqu(Address(dst, pos, Address::times_1, (i+1)*blocksPerReg*16), Ctr[i+1], vector_len);
-
-      __ add128(CtrLow, CtrHigh, Increment, Tmp, Ctr[i], Ctr[i+1], k1, vector_len);
-      __ vpunpcklqdq(Ctr[i], CtrLow, CtrHigh, vector_len);
-      __ vpunpckhqdq(Ctr[i+1], CtrLow, CtrHigh, vector_len);
-      __ vpshufb(Ctr[i], Ctr[i], CtrShuf, vector_len);
-      __ vpshufb(Ctr[i+1], Ctr[i+1], CtrShuf, vector_len);
-    }
+    xorDataAndIncCtr(parallel);
     __ incrementl(pos, parallel*blocksPerReg*16);
     __ decrementl(len, parallel*blocksPerReg*16);
     __ jcc(Assembler::zero, StoreUsed); // Exactly on the boundary, exit
@@ -628,34 +624,13 @@ static address generate_counterModeAES(StubGenerator *stubgen,
     /********************** ENCRYPTION LOOP **********************/
     __ align(OptoLoopAlignment);
     __ BIND(EncryptLoop);
-    for (int round = 0; round < keyRounds; round++) {
-      os::snprintf_checked(buffer, sizeof(buffer), "round %d", round);
-      BLOCK_COMMENT(buffer);
-      XMMRegister KeyReg = round < keyRegs ? Keys[round] : Tmp;
-      if (round >= keyRegs) {
-        int stackOffset = 16*(round - keyRegs);
-        __ vbroadcasti128(KeyReg, Address(rsp, stackOffset), vector_len);
-      }
-      for (int i = 0; i<parallel; i++) {
-        __ aesround(Ctr[i], KeyReg, round == 0, round == keyRounds - 1, Tmp, vector_len);
-      }
-    }
+
+    keysAndRounds(false, 0, keyRounds, keyRounds, parallel);
     __ cmpl(len, parallel*blocksPerReg*16);
     __ jcc(Assembler::below, LastSet); // Not enough to do a full iteration, break
 
     BLOCK_COMMENT("XOR Data and Increment Counters for Next iteration");
-    for (int i = 0; i<parallel; i+=2) {
-      __ vpxor(Ctr[i], Ctr[i], Address(src, pos, Address::times_1, i*blocksPerReg*16), vector_len);
-      __ vmovdqu(Address(dst, pos, Address::times_1, i*blocksPerReg*16), Ctr[i], vector_len);
-      __ vpxor(Ctr[i+1], Ctr[i+1], Address(src, pos, Address::times_1, (i+1)*blocksPerReg*16), vector_len);
-      __ vmovdqu(Address(dst, pos, Address::times_1, (i+1)*blocksPerReg*16), Ctr[i+1], vector_len);
-
-      __ add128(CtrLow, CtrHigh, Increment, Tmp, Ctr[i], Ctr[i+1], k1, vector_len);
-      __ vpunpcklqdq(Ctr[i], CtrLow, CtrHigh, vector_len);
-      __ vpunpckhqdq(Ctr[i+1], CtrLow, CtrHigh, vector_len);
-      __ vpshufb(Ctr[i], Ctr[i], CtrShuf, vector_len);
-      __ vpshufb(Ctr[i+1], Ctr[i+1], CtrShuf, vector_len);
-    }
+    xorDataAndIncCtr(parallel);
     __ incrementl(pos, parallel*blocksPerReg*16);
     __ decrementl(len, parallel*blocksPerReg*16);
     __ jcc(Assembler::notZero, EncryptLoop);
@@ -681,7 +656,7 @@ static address generate_counterModeAES(StubGenerator *stubgen,
   __ pinsrq(CtrLow, nextCtrLow, 0x1);
   __ pinsrq(CtrLow, nextCtrHigh, 0x0);
   __ movl(keyLength, Address(key, arrayOopDesc::length_offset_in_bytes() - arrayOopDesc::base_offset_in_bytes(T_INT)));
-  __ movdqu(Increment, ExternalAddress(key_shuffle_mask_addr()), tmp /*rscratch*/);
+  __ movdqu(KeyShuf, ExternalAddress(key_shuffle_mask_addr()), tmp /*rscratch*/);
 
   for (int keyRounds = 11; keyRounds <= 15; keyRounds +=2) { // 11, 13, 15
     Label NextKeySize;
@@ -692,12 +667,11 @@ static address generate_counterModeAES(StubGenerator *stubgen,
     // convert keys to little-endian (into registers and onto stack)
     os::snprintf_checked(buffer, sizeof(buffer), "(%d Rounds) INIT Keys tail", keyRounds);
     BLOCK_COMMENT(buffer);
-    // Increment contains key_shuffle_mask_addr
     XMMRegister KeyReg = Keys[1];
     for (int round = 0; round < keyRounds; round++) {
       __ movdqu(KeyReg, Address(key, round*16));
-      __ pshufb(KeyReg, Increment);
-      __ aesround(LastCtr, KeyReg, round == 0, round == keyRounds - 1, Tmp, Assembler::AVX_128bit);
+      __ pshufb(KeyReg, KeyShuf);
+      __ aesround(LastCtr, KeyReg, round == 0, round == keyRounds - 1, Assembler::AVX_128bit);
     }
     __ movdqu(Address(ctr), CtrLow); // next clear ctr
     __ vpxor(KeyReg, KeyReg, KeyReg, Assembler::AVX_128bit); // zero-out key
