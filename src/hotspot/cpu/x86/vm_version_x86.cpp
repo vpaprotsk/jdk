@@ -1003,7 +1003,6 @@ void VM_Version::get_processor_features() {
     clear_feature(CPU_AVX512VL);
     clear_feature(CPU_AVX512_VPOPCNTDQ);
     clear_feature(CPU_AVX512_VPCLMULQDQ);
-    clear_feature(CPU_AVX512_VAES);
     clear_feature(CPU_AVX512_VNNI);
     clear_feature(CPU_AVX512_VBMI);
     clear_feature(CPU_AVX512_VBMI2);
@@ -1019,6 +1018,7 @@ void VM_Version::get_processor_features() {
   if (UseAVX < 2) {
     clear_feature(CPU_AVX2);
     clear_feature(CPU_AVX_IFMA);
+    clear_feature(CPU_VAES);
   }
 
   if (UseAVX < 1) {
@@ -1041,7 +1041,7 @@ void VM_Version::get_processor_features() {
       clear_feature(CPU_APX_F);
       clear_feature(CPU_AVX512DQ);
       clear_feature(CPU_AVX512_VNNI);
-      clear_feature(CPU_AVX512_VAES);
+      clear_feature(CPU_VAES);
       clear_feature(CPU_AVX512_VPOPCNTDQ);
       clear_feature(CPU_AVX512_VPCLMULQDQ);
       clear_feature(CPU_AVX512_VBMI);
@@ -1576,12 +1576,18 @@ void VM_Version::get_processor_features() {
       if (FLAG_IS_DEFAULT(UseUnalignedLoadStores)) {
         FLAG_SET_DEFAULT(UseUnalignedLoadStores, true);
       }
+    }
+
 #ifdef COMPILER2
+    // Enable UseFPUForSpilling on Zen1/Zen2 (family 0x17) and Hygon Dhyana (family 0x18).
+    // On Zen3 (family 0x19) and beyond it should be default off.
+    if (cpu_family() >= 0x17 && cpu_family() < 0x19) {
       if (supports_sse4_2() && FLAG_IS_DEFAULT(UseFPUForSpilling)) {
         FLAG_SET_DEFAULT(UseFPUForSpilling, true);
       }
-#endif
     }
+#endif // COMPILER2
+
   }
 
   if (is_intel()) { // Intel cpus specific settings
@@ -2972,6 +2978,8 @@ VM_Version::VM_Features VM_Version::CpuidInfo::feature_flags() const {
     }
     if (sef_cpuid7_ecx.bits.gfni != 0)
         vm_features.set_feature(CPU_GFNI);
+    if (sef_cpuid7_ecx.bits.vaes != 0)
+        vm_features.set_feature(CPU_VAES);
     if (sef_cpuid7_ebx.bits.avx512f != 0 &&
         xem_xcr0_eax.bits.opmask != 0 &&
         xem_xcr0_eax.bits.zmm512 != 0 &&
@@ -2995,8 +3003,6 @@ VM_Version::VM_Features VM_Version::CpuidInfo::feature_flags() const {
         vm_features.set_feature(CPU_AVX512_VPOPCNTDQ);
       if (sef_cpuid7_ecx.bits.avx512_vpclmulqdq != 0)
         vm_features.set_feature(CPU_AVX512_VPCLMULQDQ);
-      if (sef_cpuid7_ecx.bits.vaes != 0)
-        vm_features.set_feature(CPU_AVX512_VAES);
       if (sef_cpuid7_ecx.bits.avx512_vnni != 0)
         vm_features.set_feature(CPU_AVX512_VNNI);
       if (sef_cpuid7_ecx.bits.avx512_bitalg != 0)
@@ -3023,7 +3029,7 @@ VM_Version::VM_Features VM_Version::CpuidInfo::feature_flags() const {
         vm_features.set_feature(CPU_AVX512VL);
         vm_features.set_feature(CPU_AVX512_VPOPCNTDQ);
         vm_features.set_feature(CPU_AVX512_VPCLMULQDQ);
-        vm_features.set_feature(CPU_AVX512_VAES);
+        vm_features.set_feature(CPU_VAES);
         vm_features.set_feature(CPU_AVX512_VNNI);
         vm_features.set_feature(CPU_AVX512_BITALG);
         vm_features.set_feature(CPU_AVX512_VBMI);
