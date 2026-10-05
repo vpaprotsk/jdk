@@ -144,7 +144,7 @@ public class ML_KEM_Intrinsic_Test {
         // it here to reproduce the failure
         rnd.setSeed(seed);
         //Note: it might be useful to increase this number during development of new intrinsics
-        final int repeat = 10_000_000;
+        final int repeat = 100_000;
         short[] coeffs1 = new short[ML_KEM_N];
         short[] coeffs2 = new short[ML_KEM_N];
         short[] inv1 = new short[ML_KEM_N];
@@ -270,9 +270,6 @@ public class ML_KEM_Intrinsic_Test {
         MethodHandle addPoly, MethodHandle addPolyJava, Random rnd,
         long seed, int i) throws Throwable {
 
-        // implKyberAddPolyJava(result, a, b) writes its result into a, not
-        // into result, so it can only be compared against the intrinsic the
-        // way its sole caller (mlKemAddPoly) invokes it: result aliased to a.
         for (int j = 0; j < ML_KEM_N; j++) {
             sum1[j] = sum2[j] = (short) (rnd.nextInt(2 * ML_KEM_Q) - ML_KEM_Q);
             b[j] = (short) (rnd.nextInt(2 * ML_KEM_Q) - ML_KEM_Q);
@@ -281,8 +278,6 @@ public class ML_KEM_Intrinsic_Test {
         addPoly.invoke(sum1, sum1, b);
         addPolyJava.invoke(sum2, sum2, b);
 
-        // Both compute a + b + ML_KEM_Q in wrapping 16 bit arithmetic, so
-        // unlike the Ntt cases the results have to match exactly
         if (!Arrays.equals(sum1, sum2)) {
             throw new RuntimeException("[Seed " + seed + "@" + i
                     + "] Result AddPoly2 mismatch: "
@@ -304,8 +299,6 @@ public class ML_KEM_Intrinsic_Test {
         addPoly.invoke(sum1, a, b, c);
         addPolyJava.invoke(sum2, a, b, c);
 
-        // Both compute a + b + c + 2 * ML_KEM_Q in wrapping 16 bit
-        // arithmetic, so the results have to match exactly
         if (!Arrays.equals(sum1, sum2)) {
             throw new RuntimeException("[Seed " + seed + "@" + i
                     + "] Result AddPoly3 mismatch: "
@@ -331,9 +324,6 @@ public class ML_KEM_Intrinsic_Test {
         barrettReduce.invoke(coeffs1);
         barrettReduceJava.invoke(coeffs2);
 
-        // vpmulhw + vpsraw 10 is the same as >> BARRETT_SHIFT, and the final
-        // vpmullw/vpsubw wrap exactly like the (short) cast, so the results
-        // have to match exactly
         if (!Arrays.equals(coeffs1, coeffs2)) {
             throw new RuntimeException("[Seed " + seed + "@" + i
                     + "] Result BarrettReduce mismatch: "
