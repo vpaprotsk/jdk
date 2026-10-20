@@ -135,8 +135,10 @@ static address generate_sha3_implCompress_avx512(StubId stub_id,
   switch(stub_id) {
   case StubId::stubgen_sha3_implCompress_id:
   case StubId::stubgen_sha3_implCompressMB_id:
+  case StubId::stubgen_single_keccak_id:
   case StubId::stubgen_double_keccak_id:
   case StubId::stubgen_quad_keccak_id:
+  case StubId::stubgen_eight_keccak_id:
     break;
   default:
     ShouldNotReachHere();
@@ -163,6 +165,34 @@ static address generate_sha3_implCompress_avx512(StubId stub_id,
   bool parallelKeccak = true;
 
   switch (stub_id) {
+    case StubId::stubgen_eight_keccak_id:
+      vector_len = Assembler::AVX_512bit;
+      state1      = c_rarg0;
+      state2      = c_rarg1;
+      state3      = c_rarg2;
+      state4      = c_rarg3;
+      __ push_ppx(r12);
+      __ push_ppx(r13);
+#ifdef _WIN64
+      state5      = r14;
+      state6      = r15;
+      state7      = r12;
+      state8      = r13;
+      __ push_ppx(r14);
+      __ push_ppx(r15);
+      __ movptr(state5, Address(rbp, 6 * wordSize));
+      __ movptr(state6, Address(rbp, 7 * wordSize));
+      __ movptr(state7, Address(rbp, 8 * wordSize));
+      __ movptr(state8, Address(rbp, 9 * wordSize));
+#else
+      state5      = c_rarg4;
+      state6      = c_rarg5;
+      state7      = r12;
+      state8      = r13;
+      __ movptr(state7, Address(rbp, 2 * wordSize));
+      __ movptr(state8, Address(rbp, 3 * wordSize));
+#endif
+      break;
     case StubId::stubgen_quad_keccak_id:
       vector_len = Assembler::AVX_256bit;
       state1      = c_rarg0;
@@ -173,6 +203,9 @@ static address generate_sha3_implCompress_avx512(StubId stub_id,
     case StubId::stubgen_double_keccak_id:
       state1      = c_rarg0;
       state2      = c_rarg1;
+      break;
+    case StubId::stubgen_single_keccak_id:
+      state1      = c_rarg0;
       break;
     default:
       parallelKeccak = false;
@@ -227,7 +260,32 @@ static address generate_sha3_implCompress_avx512(StubId stub_id,
   XMMRegister T1 = xmm31;
 
   auto loadState = [=](XMMRegister X1, XMMRegister X2, int disp){
-    if (stub_id == StubId::stubgen_quad_keccak_id) {
+    if (stub_id == StubId::stubgen_eight_keccak_id) {
+      __ vmovdqu(T0, Address(state1, disp), Assembler::AVX_128bit);
+      __ vmovdqu(T1, Address(state2, disp), Assembler::AVX_128bit);
+      __ vmovdqu(C0, Address(state3, disp), Assembler::AVX_128bit);
+      __ vmovdqu(C1, Address(state4, disp), Assembler::AVX_128bit);
+      __ vshufpd(X1, T0, T1, 0b00, Assembler::AVX_128bit);
+      __ vshufpd(X2, T0, T1, 0b11, Assembler::AVX_128bit);
+      __ vshufpd(T0, C0, C1, 0b00, Assembler::AVX_128bit);
+      __ vshufpd(T1, C0, C1, 0b11, Assembler::AVX_128bit);
+      __ evinserti64x2(X1, X1, T0, 0b01, Assembler::AVX_256bit);
+      __ evinserti64x2(X2, X2, T1, 0b01, Assembler::AVX_256bit);
+
+      __ vmovdqu(C0, Address(state5, disp), Assembler::AVX_128bit);
+      __ vmovdqu(C1, Address(state6, disp), Assembler::AVX_128bit);
+      __ vshufpd(T0, C0, C1, 0b00, Assembler::AVX_128bit);
+      __ vshufpd(T1, C0, C1, 0b11, Assembler::AVX_128bit);
+      __ evinserti64x2(X1, X1, T0, 0b10, Assembler::AVX_512bit); //FIXME, use vinserti128
+      __ evinserti64x2(X2, X2, T1, 0b10, Assembler::AVX_512bit);
+
+      __ vmovdqu(C0, Address(state7, disp), Assembler::AVX_128bit);
+      __ vmovdqu(C1, Address(state8, disp), Assembler::AVX_128bit);
+      __ vshufpd(T0, C0, C1, 0b00, Assembler::AVX_128bit);
+      __ vshufpd(T1, C0, C1, 0b11, Assembler::AVX_128bit);
+      __ evinserti64x2(X1, X1, T0, 0b11, Assembler::AVX_512bit);
+      __ evinserti64x2(X2, X2, T1, 0b11, Assembler::AVX_512bit);
+    } else if (stub_id == StubId::stubgen_quad_keccak_id) {
       __ vmovdqu(T0, Address(state1, disp), Assembler::AVX_128bit);
       __ vmovdqu(T1, Address(state2, disp), Assembler::AVX_128bit);
       __ vmovdqu(C0, Address(state3, disp), Assembler::AVX_128bit);
@@ -263,7 +321,25 @@ static address generate_sha3_implCompress_avx512(StubId stub_id,
   loadState(A20, A21, 20 * 8);
   loadState(A22, A23, 22 * 8);
   __ movq(A24, Address(state1, 24 * 8));
-  if (stub_id == StubId::stubgen_quad_keccak_id) {
+  if (stub_id == StubId::stubgen_eight_keccak_id) {
+    __ movq(T0, Address(state2, 24 * 8));
+    __ vshufpd(A24, A24, T0, 0b00, Assembler::AVX_128bit);
+
+    __ movq(T0, Address(state3, 24 * 8));
+    __ movq(T1, Address(state4, 24 * 8));
+    __ vshufpd(T0, T0, T1, 0b00, Assembler::AVX_128bit);
+    __ evinserti64x2(A24, A24, T0, 0b01, Assembler::AVX_256bit); //FIXME, use vinserti128
+
+    __ movq(T0, Address(state5, 24 * 8));
+    __ movq(T1, Address(state6, 24 * 8));
+    __ vshufpd(T0, T0, T1, 0b00, Assembler::AVX_128bit);
+    __ evinserti64x2(A24, A24, T0, 0b10, Assembler::AVX_512bit);
+
+    __ movq(T0, Address(state7, 24 * 8));
+    __ movq(T1, Address(state8, 24 * 8));
+    __ vshufpd(T0, T0, T1, 0b00, Assembler::AVX_128bit);
+    __ evinserti64x2(A24, A24, T0, 0b11, Assembler::AVX_512bit);
+  } else if (stub_id == StubId::stubgen_quad_keccak_id) {
     __ movq(T0, Address(state2, 24 * 8));
     __ vshufpd(A24, A24, T0, 0b00, Assembler::AVX_128bit);
 
@@ -534,7 +610,18 @@ static address generate_sha3_implCompress_avx512(StubId stub_id,
   }
 
   auto storeState = [=](int disp, XMMRegister X1, XMMRegister X2){
-    if (stub_id == StubId::stubgen_quad_keccak_id) {
+    if (stub_id == StubId::stubgen_eight_keccak_id) {
+      __ vshufpd(T0, X1, X2, 0b00000000, Assembler::AVX_512bit);
+      __ vshufpd(T1, X1, X2, 0b11111111, Assembler::AVX_512bit);
+      __ vmovdqu(Address(state1, disp), T0, Assembler::AVX_128bit);
+      __ vmovdqu(Address(state2, disp), T1, Assembler::AVX_128bit);
+      __ vextracti128(Address(state3, disp), T0, 1);
+      __ vextracti128(Address(state4, disp), T1, 1);
+      __ vextracti32x4(Address(state5, disp), T0, 2);
+      __ vextracti32x4(Address(state6, disp), T1, 2);
+      __ vextracti32x4(Address(state7, disp), T0, 3);
+      __ vextracti32x4(Address(state8, disp), T1, 3);
+    } else if (stub_id == StubId::stubgen_quad_keccak_id) {
       __ vshufpd(T0, X1, X2, 0b0000, Assembler::AVX_256bit);
       __ vshufpd(T1, X1, X2, 0b1111, Assembler::AVX_256bit);
       __ vmovdqu(Address(state1, disp), T0, Assembler::AVX_128bit);
@@ -565,7 +652,18 @@ static address generate_sha3_implCompress_avx512(StubId stub_id,
   storeState(20 * 8, A20, A21);
   storeState(22 * 8, A22, A23);
   __ pextrq(Address(state1, 24 * 8), A24, 0);
-  if (stub_id == StubId::stubgen_quad_keccak_id) {
+  if (stub_id == StubId::stubgen_eight_keccak_id) {
+    __ pextrq(Address(state2, 24 * 8), A24, 1);
+    __ vextracti32x4(T0, A24, 1);
+    __ pextrq(Address(state3, 24 * 8), T0, 0);
+    __ pextrq(Address(state4, 24 * 8), T0, 1);
+    __ vextracti32x4(T0, A24, 2);
+    __ pextrq(Address(state5, 24 * 8), T0, 0);
+    __ pextrq(Address(state6, 24 * 8), T0, 1);
+    __ vextracti32x4(T0, A24, 3);
+    __ pextrq(Address(state7, 24 * 8), T0, 0);
+    __ pextrq(Address(state8, 24 * 8), T0, 1);
+  } else if (stub_id == StubId::stubgen_quad_keccak_id) {
     __ pextrq(Address(state2, 24 * 8), A24, 1);
     __ vextracti32x4(A24, A24, 1);
     __ pextrq(Address(state3, 24 * 8), A24, 0);
@@ -581,7 +679,14 @@ static address generate_sha3_implCompress_avx512(StubId stub_id,
     __ vpxorq(rxmm, rxmm, rxmm, vector_len);
   }
 
-  if (!parallelKeccak) {
+  if (stub_id == StubId::stubgen_eight_keccak_id) {
+#ifdef _WIN64
+    __ pop_ppx(r15);
+    __ pop_ppx(r14);
+#endif
+    __ pop_ppx(r13);
+    __ pop_ppx(r12);
+  } else if (!parallelKeccak) {
 #ifdef _WIN64
     __ pop_ppx(rdi);
 #endif
@@ -637,6 +742,7 @@ static address generate_sha3_implCompress_avx2(StubId stub_id,
   switch(stub_id) {
   case StubId::stubgen_sha3_implCompress_id:
   case StubId::stubgen_sha3_implCompressMB_id:
+  case StubId::stubgen_single_keccak_id:
   case StubId::stubgen_double_keccak_id:
     break;
   default:
@@ -656,21 +762,30 @@ static address generate_sha3_implCompress_avx2(StubId stub_id,
   __ enter();
 
   bool multiBlock = stub_id == StubId::stubgen_sha3_implCompressMB_id;
-  bool parallelKeccak = stub_id == StubId::stubgen_double_keccak_id;
   int vector_len, reg_size;
   Register buf, offset, block_size, limit;
   Register state1, state2;
   Register roundsLeft = r10;
   Register round_consts = r11;
   Register rotate_consts;
+  bool mixInBuffer = false;
 
-  if (parallelKeccak) {
+  switch (stub_id) {
+  case StubId::stubgen_double_keccak_id:
     vector_len = Assembler::AVX_256bit;
     reg_size = 32;
     state1      = c_rarg0;
     state2      = c_rarg1;
     rotate_consts = r9;
-  } else {
+    break;
+  case StubId::stubgen_single_keccak_id:
+    vector_len = Assembler::AVX_128bit;
+    reg_size = 16;
+    state1      = c_rarg0;
+    rotate_consts = r9;
+    break;
+  default:
+    mixInBuffer = true;
     vector_len = Assembler::AVX_128bit;
     reg_size = 16;
     buf         = c_rarg0;
@@ -734,7 +849,7 @@ static address generate_sha3_implCompress_avx2(StubId stub_id,
 
   auto loadState = [=](XMMRegister dst, int disp){
     __ vmovdqu(dst, Address(state1, disp), Assembler::AVX_128bit);
-    if (parallelKeccak) {
+    if (stub_id == StubId::stubgen_double_keccak_id) {
       __ vinserti128(dst, dst, Address(state2, disp), 1);
     }
   };
@@ -755,7 +870,7 @@ static address generate_sha3_implCompress_avx2(StubId stub_id,
   loadState(a21a22, 21 * 8);
   loadState(a23a24, 23 * 8);
 
-  if (!parallelKeccak) {
+  if (mixInBuffer) {
     Label buffer_done;
     // load input from buffer: 72, 104, 136, 144 or 168 bytes
     // i.e. 5+4, 2*5+3, 3*5+2, 3*5+3 or 4*5+1 longs
@@ -1092,7 +1207,7 @@ static address generate_sha3_implCompress_avx2(StubId stub_id,
     int disp2 = disp+10;
     __ pextrq(Address(state1, disp1 * 8), src, 0);
     __ pextrq(Address(state1, disp2 * 8), src, 1);
-    if (parallelKeccak) {
+    if (stub_id == StubId::stubgen_double_keccak_id) {
       __ vextracti128(src, src, 1);
       __ pextrq(Address(state2, disp1 * 8), src, 0);
       __ pextrq(Address(state2, disp2 * 8), src, 1);
@@ -1107,14 +1222,14 @@ static address generate_sha3_implCompress_avx2(StubId stub_id,
     __ vpunpckhqdq(X3X4, X1X3, X2X4, Assembler::AVX_256bit);
     __ vmovdqu(Address(state1, disp1 * 8), X1X2, Assembler::AVX_128bit);
     __ vmovdqu(Address(state1, disp2 * 8), X3X4, Assembler::AVX_128bit);
-    if (parallelKeccak) {
+    if (stub_id == StubId::stubgen_double_keccak_id) {
       __ vextracti128(Address(state2, disp1 * 8), X1X2, 1);
       __ vextracti128(Address(state2, disp2 * 8), X3X4, 1);
     }
   };
 
   __ pextrq(Address(state1, 0 * 8), A0_, 0);
-  if (parallelKeccak) {
+  if (stub_id == StubId::stubgen_double_keccak_id) {
     __ vextracti128(A0_, A0_, 1);
     __ pextrq(Address(state2, 0 * 8), A0_, 0);
   }
@@ -1135,7 +1250,7 @@ static address generate_sha3_implCompress_avx2(StubId stub_id,
 
   __ movq(rsp, rbp);
   __ pop_ppx(rbp);
-  if (!parallelKeccak) {
+  if (mixInBuffer) {
     __ pop_ppx(r12);
   #ifdef _WIN64
     __ pop_ppx(rdi);
@@ -1159,13 +1274,19 @@ void StubGenerator::generate_sha3_stubs() {
         generate_sha3_implCompress_avx512(StubId::stubgen_sha3_implCompress_id, this, _masm);
       StubRoutines::_sha3_implCompressMB =
         generate_sha3_implCompress_avx512(StubId::stubgen_sha3_implCompressMB_id, this, _masm);
+      StubRoutines::_single_keccak =
+        generate_sha3_implCompress_avx512(StubId::stubgen_single_keccak_id, this, _masm);
       StubRoutines::_double_keccak =
         generate_sha3_implCompress_avx512(StubId::stubgen_double_keccak_id, this, _masm);
       StubRoutines::_quad_keccak =
         generate_sha3_implCompress_avx512(StubId::stubgen_quad_keccak_id, this, _masm);
+      StubRoutines::_eight_keccak =
+        generate_sha3_implCompress_avx512(StubId::stubgen_eight_keccak_id, this, _masm);
     } else {
       StubRoutines::_sha3_implCompress =
         generate_sha3_implCompress_avx2(StubId::stubgen_sha3_implCompress_id, this, _masm);
+      StubRoutines::_single_keccak =
+        generate_sha3_implCompress_avx2(StubId::stubgen_single_keccak_id, this, _masm);
       StubRoutines::_double_keccak =
         generate_sha3_implCompress_avx2(StubId::stubgen_double_keccak_id, this, _masm);
       StubRoutines::_sha3_implCompressMB =

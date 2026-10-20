@@ -162,8 +162,10 @@ class OptoRuntime : public AllStatic {
   static const TypeFunc* _digestBase_implCompress_without_sha3_Type;
   static const TypeFunc* _digestBase_implCompressMB_with_sha3_Type;
   static const TypeFunc* _digestBase_implCompressMB_without_sha3_Type;
+  static const TypeFunc* _single_keccak_Type;
   static const TypeFunc* _double_keccak_Type;
   static const TypeFunc* _quad_keccak_Type;
+  static const TypeFunc* _eight_keccak_Type;
   static const TypeFunc* _multiplyToLen_Type;
   static const TypeFunc* _montgomeryMultiply_Type;
   static const TypeFunc* _montgomerySquare_Type;
@@ -541,6 +543,11 @@ private:
     return is_sha3 ? _digestBase_implCompressMB_with_sha3_Type : _digestBase_implCompressMB_without_sha3_Type;
   }
 
+  static inline const TypeFunc* single_keccak_Type() {
+    assert(_single_keccak_Type != nullptr, "should be initialized");
+    return _single_keccak_Type;
+  }
+
   static inline const TypeFunc* double_keccak_Type() {
     assert(_double_keccak_Type != nullptr, "should be initialized");
     return _double_keccak_Type;
@@ -549,6 +556,11 @@ private:
   static inline const TypeFunc* quad_keccak_Type() {
     assert(_quad_keccak_Type != nullptr, "should be initialized");
     return _quad_keccak_Type;
+  }
+
+  static inline const TypeFunc* eight_keccak_Type() {
+    assert(_eight_keccak_Type != nullptr, "should be initialized");
+    return _eight_keccak_Type;
   }
 
   static inline const TypeFunc* multiplyToLen_Type() {
